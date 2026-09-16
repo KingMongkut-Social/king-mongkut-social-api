@@ -9,12 +9,19 @@ import type { LoginInput, RegisterInput } from './auth.schemas.js';
 
 const BCRYPT_ROUNDS = 12;
 
-async function issueSession(userId: string, role: 'user' | 'admin') {
+export interface ClientMeta {
+  ip?: string | undefined;
+  userAgent?: string | undefined;
+}
+
+async function issueSession(userId: string, role: 'user' | 'admin', meta?: ClientMeta) {
   const refresh = await signRefreshToken(userId);
   await SessionModel.create({
-    userId: new Types.ObjectId(userId),
+    user: new Types.ObjectId(userId),
     tokenHash: sha256(refresh.jti),
     expiresAt: refresh.expiresAt,
+    ip: meta?.ip ?? null,
+    userAgent: meta?.userAgent ?? null,
   });
 
   return {
@@ -23,7 +30,7 @@ async function issueSession(userId: string, role: 'user' | 'admin') {
   };
 }
 
-export async function register(input: RegisterInput) {
+export async function register(input: RegisterInput, meta?: ClientMeta) {
   if (bcrypt.truncates(input.password)) {
     throw new AppError(422, 'PASSWORD_TOO_LONG', 'Password must not exceed 72 UTF-8 bytes');
   }
@@ -36,27 +43,32 @@ export async function register(input: RegisterInput) {
     name: input.name,
     email: input.email,
     passwordHash,
+    university: input.university,
   });
 
-  return { user, tokens: await issueSession(user.id, user.role) };
+  return { user, tokens: await issueSession(user.id, user.role, meta) };
 }
 
-export async function login(input: LoginInput) {
+export async function login(input: LoginInput, meta?: ClientMeta) {
   const user = await UserModel.findOne({ email: input.email }).select('+passwordHash');
   if (!user || !(await bcrypt.compare(input.password, user.passwordHash))) {
     throw new AppError(401, 'INVALID_CREDENTIALS', 'Invalid email or password');
   }
 
-  return { user, tokens: await issueSession(user.id, user.role) };
+  if (!user.isActive) {
+    throw new AppError(403, 'ACCOUNT_INACTIVE', 'Your account has been deactivated');
+  }
+
+  return { user, tokens: await issueSession(user.id, user.role, meta) };
 }
 
-export async function refresh(refreshToken: string) {
+export async function refresh(refreshToken: string, meta?: ClientMeta) {
   const payload = await verifyRefreshToken(refreshToken);
   const session = await SessionModel.findOneAndUpdate(
     {
-      userId: payload.sub,
+      user: new Types.ObjectId(payload.sub),
       tokenHash: sha256(payload.jti),
-      revokedAt: { $exists: false },
+      revokedAt: null,
       expiresAt: { $gt: new Date() },
     },
     { $set: { revokedAt: new Date() } },
@@ -68,19 +80,19 @@ export async function refresh(refreshToken: string) {
   const user = await UserModel.findById(payload.sub);
   if (!user) throw new AppError(401, 'USER_NOT_FOUND', 'User no longer exists');
 
-  return { user, tokens: await issueSession(user.id, user.role) };
+  return { user, tokens: await issueSession(user.id, user.role, meta) };
 }
 
-export async function logout(refreshToken?: string): Promise<void> {
+export async function logout(refreshToken?: string) {
   if (!refreshToken) return;
 
   try {
     const payload = await verifyRefreshToken(refreshToken);
     await SessionModel.updateOne(
-      { userId: payload.sub, tokenHash: sha256(payload.jti), revokedAt: { $exists: false } },
+      { user: new Types.ObjectId(payload.sub), tokenHash: sha256(payload.jti), revokedAt: null },
       { $set: { revokedAt: new Date() } },
     );
   } catch {
-    // Logout is intentionally idempotent; invalid/expired cookies are simply cleared.
+    // Logout is intentionally idempotent
   }
 }

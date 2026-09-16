@@ -7,6 +7,9 @@ export const createPostSchema = z.object({
   title: z.string().trim().min(1).max(150),
   content: z.string().trim().min(1).max(20_000),
   status: z.enum(['draft', 'published']).default('draft'),
+  coverImage: z.string().url().nullable().optional(),
+  tags: z.array(z.string().trim().min(1)).default([]),
+  publishedAt: z.coerce.date().nullable().optional(),
 });
 
 export const updatePostSchema = createPostSchema.partial().refine(
@@ -18,8 +21,32 @@ export const listPostsQuerySchema = z.object({
   page: z.coerce.number().int().positive().default(1),
   limit: z.coerce.number().int().positive().max(100).default(20),
   search: z.string().trim().max(100).optional(),
+  status: z.enum(['draft', 'published']).optional(),
+  tag: z.string().trim().optional(),
 });
 
-export type CreatePostInput = z.infer<typeof createPostSchema>;
-export type UpdatePostInput = z.infer<typeof updatePostSchema>;
-export type ListPostsQuery = z.infer<typeof listPostsQuerySchema>;
+export interface CreatePostInput {
+  title: string;
+  content: string;
+  status: 'draft' | 'published';
+  coverImage?: string | null;
+  tags: string[];
+  publishedAt?: Date | null;
+}
+
+export interface UpdatePostInput {
+  title?: string;
+  content?: string;
+  status?: 'draft' | 'published';
+  coverImage?: string | null;
+  tags?: string[];
+  publishedAt?: Date | null;
+}
+
+export interface ListPostsQuery {
+  page: number;
+  limit: number;
+  search?: string;
+  status?: 'draft' | 'published';
+  tag?: string;
+}

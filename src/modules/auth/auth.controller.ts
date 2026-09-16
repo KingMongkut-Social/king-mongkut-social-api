@@ -8,6 +8,13 @@ import type { LoginInput, RegisterInput } from './auth.schemas.js';
 
 const REFRESH_COOKIE = 'refresh_token';
 
+function getClientMeta(req: Request) {
+  const userAgent = (req.headers['user-agent'] as string) || undefined;
+  const forwarded = req.headers['x-forwarded-for'];
+  const ip = (typeof forwarded === 'string' ? forwarded.split(',')[0]?.trim() : undefined) || req.ip || undefined;
+  return { ip, userAgent };
+}
+
 function setRefreshCookie(res: Response, token: string): void {
   res.cookie(REFRESH_COOKIE, token, {
     httpOnly: true,
@@ -27,35 +34,38 @@ function clearRefreshCookie(res: Response): void {
   });
 }
 
-export async function register(req: Request, res: Response): Promise<void> {
-  const result = await authService.register(req.body as RegisterInput);
+export async function register(req: Request, res: Response) {
+  const meta = getClientMeta(req);
+  const result = await authService.register(req.body as RegisterInput, meta);
   setRefreshCookie(res, result.tokens.refreshToken);
   res.status(201).json({ success: true, data: { user: result.user, accessToken: result.tokens.accessToken } });
 }
 
-export async function login(req: Request, res: Response): Promise<void> {
-  const result = await authService.login(req.body as LoginInput);
+export async function login(req: Request, res: Response) {
+  const meta = getClientMeta(req);
+  const result = await authService.login(req.body as LoginInput, meta);
   setRefreshCookie(res, result.tokens.refreshToken);
   res.json({ success: true, data: { user: result.user, accessToken: result.tokens.accessToken } });
 }
 
-export async function refresh(req: Request, res: Response): Promise<void> {
+export async function refresh(req: Request, res: Response) {
   const token = req.cookies[REFRESH_COOKIE] as string | undefined;
   if (!token) throw new AppError(401, 'MISSING_REFRESH_TOKEN', 'Refresh token cookie is missing');
 
-  const result = await authService.refresh(token);
+  const meta = getClientMeta(req);
+  const result = await authService.refresh(token, meta);
   setRefreshCookie(res, result.tokens.refreshToken);
   res.json({ success: true, data: { user: result.user, accessToken: result.tokens.accessToken } });
 }
 
-export async function logout(req: Request, res: Response): Promise<void> {
+export async function logout(req: Request, res: Response) {
   const token = req.cookies[REFRESH_COOKIE] as string | undefined;
   await authService.logout(token);
   clearRefreshCookie(res);
   res.status(204).send();
 }
 
-export async function me(req: Request, res: Response): Promise<void> {
+export async function me(req: Request, res: Response) {
   if (!req.auth) throw new AppError(401, 'UNAUTHORIZED', 'Authentication required');
   const user = await UserModel.findById(req.auth.userId);
   if (!user) throw new AppError(404, 'USER_NOT_FOUND', 'User not found');

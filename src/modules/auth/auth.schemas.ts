@@ -10,14 +10,28 @@ const passwordSchema = z
 
 export const registerSchema = z.object({
   name: z.string().trim().min(2).max(80),
-  email: z.email().transform((value) => value.toLowerCase()),
+  email: z.string().email().transform((value) => value.toLowerCase()),
   password: passwordSchema,
+  university: z.enum(['KMITL', 'KMUTNB', 'KMUTT'], {
+    message: 'University must be KMITL, KMUTNB, or KMUTT',
+  }),
 });
 
 export const loginSchema = z.object({
-  email: z.email().transform((value) => value.toLowerCase()),
+  email: z.string().email().transform((value) => value.toLowerCase()),
   password: z.string().min(1).max(128),
 });
 
-export type RegisterInput = z.infer<typeof registerSchema>;
-export type LoginInput = z.infer<typeof loginSchema>;
+export type University = 'KMITL' | 'KMUTNB' | 'KMUTT';
+
+export interface RegisterInput {
+  name: string;
+  email: string;
+  password: string;
+  university: University;
+}
+
+export interface LoginInput {
+  email: string;
+  password: string;
+}

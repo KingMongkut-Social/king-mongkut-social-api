@@ -19,23 +19,27 @@ export function createApp() {
 
   app.disable('x-powered-by');
   app.set('trust proxy', env.TRUST_PROXY);
-  app.use(pinoHttp({
-    logger,
-    genReqId(req: express.Request, res: express.Response) {
-      const supplied = req.headers['x-request-id'];
-      const id = typeof supplied === 'string' && supplied.length <= 100 ? supplied : randomUUID();
-      res.setHeader('x-request-id', id);
-      return id;
-    },
-  }));
+  app.use(
+    pinoHttp({
+      logger,
+      genReqId(req: express.Request, res: express.Response) {
+        const supplied = req.headers['x-request-id'];
+        const id = typeof supplied === 'string' && supplied.length <= 100 ? supplied : randomUUID();
+        res.setHeader('x-request-id', id);
+        return id;
+      },
+    }),
+  );
   app.use(helmet());
-  app.use(cors({
-    origin(origin, callback) {
-      if (!origin || env.CORS_ORIGINS.includes(origin)) return callback(null, true);
-      return callback(new AppError(403, 'CORS_FORBIDDEN', 'Origin is not allowed by CORS'));
-    },
-    credentials: true,
-  }));
+  app.use(
+    cors({
+      origin(origin, callback) {
+        if (!origin || env.CORS_ORIGINS.includes(origin)) return callback(null, true);
+        return callback(new AppError(403, 'CORS_FORBIDDEN', 'Origin is not allowed by CORS'));
+      },
+      credentials: true,
+    }),
+  );
   app.use(compression());
   app.use(express.json({ limit: '1mb' }));
   app.use(express.urlencoded({ extended: false, limit: '1mb' }));
