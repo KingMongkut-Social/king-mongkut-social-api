@@ -53,7 +53,7 @@ function assertInstitution(email: string, expected?: GoogleLoginInput['universit
   return university;
 }
 
-async function exchangeGoogleCode(code: string) {
+async function exchangeGoogleCode(code: string, redirectUri: string) {
   if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) {
     throw new AppError(503, 'GOOGLE_AUTH_NOT_CONFIGURED', 'Google login is not configured on the server');
   }
@@ -65,7 +65,7 @@ async function exchangeGoogleCode(code: string) {
       code,
       client_id: env.GOOGLE_CLIENT_ID,
       client_secret: env.GOOGLE_CLIENT_SECRET,
-      redirect_uri: 'postmessage',
+      redirect_uri: redirectUri,
       grant_type: 'authorization_code',
     }),
   });
@@ -136,8 +136,11 @@ export async function login(input: LoginInput, meta?: ClientMeta) {
   return { user, tokens: await issueSession(user.id, user.role, meta) };
 }
 
-export async function googleLogin(input: GoogleLoginInput, meta?: ClientMeta) {
-  const profile = await exchangeGoogleCode(input.code);
+export async function googleLogin(input: GoogleLoginInput, redirectUri: string, meta?: ClientMeta) {
+  if (!env.CORS_ORIGINS.includes(redirectUri)) {
+    throw new AppError(403, 'GOOGLE_AUTH_ORIGIN_FORBIDDEN', 'Google login origin is not allowed');
+  }
+  const profile = await exchangeGoogleCode(input.code, redirectUri);
   const university = assertInstitution(profile.email, input.university);
 
   const [byGoogle, byEmail] = await Promise.all([

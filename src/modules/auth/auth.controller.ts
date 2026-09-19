@@ -47,7 +47,15 @@ export async function login(req: Request, res: Response) {
 }
 
 export async function google(req: Request, res: Response) {
-  const result = await authService.googleLogin(req.body as GoogleLoginInput, getClientMeta(req));
+  const origin = req.headers.origin;
+  if (!origin || !env.CORS_ORIGINS.includes(origin)) {
+    throw new AppError(403, 'GOOGLE_AUTH_ORIGIN_FORBIDDEN', 'Google login origin is not allowed');
+  }
+  if (req.get('x-requested-with') !== 'XMLHttpRequest') {
+    throw new AppError(400, 'GOOGLE_AUTH_INVALID_REQUEST', 'Google popup login requires X-Requested-With');
+  }
+
+  const result = await authService.googleLogin(req.body as GoogleLoginInput, origin, getClientMeta(req));
   setRefreshCookie(res, result.tokens.refreshToken);
   res.json({ success: true, data: { user: result.user, accessToken: result.tokens.accessToken } });
 }
