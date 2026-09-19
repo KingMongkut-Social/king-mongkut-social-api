@@ -6,7 +6,7 @@ export type University = 'KMITL' | 'KMUTNB' | 'KMUTT';
 export interface User {
   name: string;
   email: string;
-  passwordHash: string | null;
+  passwordHash?: string | null;
   googleSub?: string;
   avatarUrl: string | null;
   university: University;

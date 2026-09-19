@@ -1,4 +1,4 @@
-import { Types, type FilterQuery } from 'mongoose';
+import { Types } from 'mongoose';
 import { AppError } from '../../common/errors/app-error.js';
 import { CommentModel } from '../comments/comment.model.js';
 import { ReactionModel } from '../reactions/reaction.model.js';
@@ -79,19 +79,16 @@ export async function createPost(userId: string, input: CreatePostInput) {
 }
 
 export async function listPublished(query: ListPostsQuery, viewerId?: string) {
-  const filter: FilterQuery<Post> = { status: 'published' };
-
-  if (query.search) {
-    const pattern = new RegExp(escapeRegex(query.search), 'i');
-    filter.$or = [{ title: pattern }, { content: pattern }];
-  }
-  if (query.tag) {
-    filter.tags = { $in: [query.tag] };
-  }
-  if (query.university) {
-    const authors = await UserModel.find({ university: query.university }).select('_id').lean();
-    filter.user = { $in: authors.map((author) => author._id) };
-  }
+  const authors = query.university
+    ? await UserModel.find({ university: query.university }).select('_id').lean()
+    : null;
+  const searchPattern = query.search ? new RegExp(escapeRegex(query.search), 'i') : null;
+  const filter = {
+    status: 'published' as const,
+    ...(searchPattern ? { $or: [{ title: searchPattern }, { content: searchPattern }] } : {}),
+    ...(query.tag ? { tags: { $in: [query.tag] } } : {}),
+    ...(authors ? { user: { $in: authors.map((author) => author._id) } } : {}),
+  };
 
   const skip = (query.page - 1) * query.limit;
   const [items, total] = await Promise.all([
@@ -114,15 +111,12 @@ export async function listPublished(query: ListPostsQuery, viewerId?: string) {
 }
 
 export async function listMine(userId: string, query: ListPostsQuery) {
-  const filter: FilterQuery<Post> = { user: new Types.ObjectId(userId) };
-
-  if (query.status) {
-    filter.status = query.status;
-  }
-  if (query.search) {
-    const pattern = new RegExp(escapeRegex(query.search), 'i');
-    filter.$or = [{ title: pattern }, { content: pattern }];
-  }
+  const searchPattern = query.search ? new RegExp(escapeRegex(query.search), 'i') : null;
+  const filter = {
+    user: new Types.ObjectId(userId),
+    ...(query.status ? { status: query.status } : {}),
+    ...(searchPattern ? { $or: [{ title: searchPattern }, { content: searchPattern }] } : {}),
+  };
 
   const skip = (query.page - 1) * query.limit;
   const [items, total] = await Promise.all([

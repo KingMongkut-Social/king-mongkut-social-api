@@ -1,6 +1,6 @@
-import { Types, type FilterQuery } from 'mongoose';
+import { Types } from 'mongoose';
 import { AppError } from '../../common/errors/app-error.js';
-import { UserModel, type User } from '../users/user.model.js';
+import { UserModel } from '../users/user.model.js';
 import { FriendshipModel } from './friendship.model.js';
 import type { SearchUsersQueryInput } from './friendship.schemas.js';
 
@@ -10,16 +10,11 @@ function escapeRegex(value: string): string {
 
 export async function searchUsers(currentUserId: string, query: SearchUsersQueryInput) {
   const currentId = new Types.ObjectId(currentUserId);
-  const filter: FilterQuery<User> = {
+  const filter = {
     _id: { $ne: currentId },
+    ...(query.q ? { name: new RegExp(escapeRegex(query.q), 'i') } : {}),
+    ...(query.university ? { university: query.university } : {}),
   };
-
-  if (query.q) {
-    filter.name = new RegExp(escapeRegex(query.q), 'i');
-  }
-  if (query.university) {
-    filter.university = query.university;
-  }
 
   const users = await UserModel.find(filter)
     .select('name email university avatarUrl')
