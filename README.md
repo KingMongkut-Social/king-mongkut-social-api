@@ -1,6 +1,6 @@
-# King Mongkut Social API
+# KingMongkut Social API
 
-Backend สำหรับ King Mongkut Social Posts + Authentication ด้วย **Node.js, TypeScript, Express 5, Mongoose 9** ออกแบบให้ frontend Vite/TypeScript ต่อได้ง่าย
+Backend สำหรับ KingMongkut Social Posts + Authentication ด้วย **Node.js, TypeScript, Express 5, Mongoose 9** ออกแบบให้ frontend Vite/TypeScript ต่อได้ง่าย
 
 ## Features
 
