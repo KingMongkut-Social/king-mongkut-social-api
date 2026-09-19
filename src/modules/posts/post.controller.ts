@@ -10,7 +10,7 @@ export async function create(req: Request, res: Response): Promise<void> {
 }
 
 export async function list(req: Request, res: Response): Promise<void> {
-  const result = await postService.listPublished(req.query as unknown as ListPostsQuery);
+  const result = await postService.listPublished(req.query as unknown as ListPostsQuery, req.auth?.userId);
   res.json({ success: true, data: result });
 }
 
@@ -27,7 +27,12 @@ export async function getById(req: Request, res: Response): Promise<void> {
 
 export async function update(req: Request, res: Response): Promise<void> {
   if (!req.auth) throw new AppError(401, 'UNAUTHORIZED', 'Authentication required');
-  const post = await postService.updatePost(req.params.id as string, req.auth.userId, req.auth.role, req.body as UpdatePostInput);
+  const post = await postService.updatePost(
+    req.params.id as string,
+    req.auth.userId,
+    req.auth.role,
+    req.body as UpdatePostInput,
+  );
   res.json({ success: true, data: { post } });
 }
 

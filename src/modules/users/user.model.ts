@@ -6,7 +6,9 @@ export type University = 'KMITL' | 'KMUTNB' | 'KMUTT';
 export interface User {
   name: string;
   email: string;
-  passwordHash: string;
+  passwordHash?: string | null;
+  googleSub?: string;
+  avatarUrl?: string | null;
   university: University;
   role: Role;
   isActive: boolean;
@@ -34,13 +36,26 @@ const userSchema = new Schema(
     },
     passwordHash: {
       type: String,
-      required: true,
+      required: false,
+      default: null,
       select: false,
+    },
+    googleSub: {
+      type: String,
+      required: false,
+      unique: true,
+      sparse: true,
+      index: true,
+    },
+    avatarUrl: {
+      type: String,
+      default: null,
     },
     university: {
       type: String,
       enum: ['KMITL', 'KMUTNB', 'KMUTT'],
       required: true,
+      index: true,
     },
     role: {
       type: String,
@@ -66,6 +81,7 @@ const userSchema = new Schema(
     toJSON: {
       transform(_doc, ret: any) {
         delete ret.passwordHash;
+        delete ret.googleSub;
         return ret;
       },
     },

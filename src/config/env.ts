@@ -16,6 +16,8 @@ const envSchema = z.object({
   COOKIE_SAME_SITE: z.enum(['lax', 'strict', 'none']).default('lax'),
   TRUST_PROXY: z.coerce.number().int().min(0).default(0),
   LOG_LEVEL: z.string().default('info'),
+  GOOGLE_CLIENT_ID: z.string().trim().default(''),
+  GOOGLE_CLIENT_SECRET: z.string().trim().default(''),
 }).superRefine((value, ctx) => {
   if (value.ACCESS_TOKEN_SECRET === value.REFRESH_TOKEN_SECRET) {
     ctx.addIssue({
@@ -29,6 +31,13 @@ const envSchema = z.object({
       code: 'custom',
       path: ['COOKIE_SECURE'],
       message: 'COOKIE_SECURE must be true when SameSite=None in production',
+    });
+  }
+  if (Boolean(value.GOOGLE_CLIENT_ID) !== Boolean(value.GOOGLE_CLIENT_SECRET)) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['GOOGLE_CLIENT_SECRET'],
+      message: 'GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must either both be set or both be empty',
     });
   }
 });

@@ -4,7 +4,7 @@ import { durationToMs } from '../../common/utils/duration.js';
 import { env } from '../../config/env.js';
 import { UserModel } from '../users/user.model.js';
 import * as authService from './auth.service.js';
-import type { LoginInput, RegisterInput } from './auth.schemas.js';
+import type { GoogleLoginInput, LoginInput, RegisterInput } from './auth.schemas.js';
 
 const REFRESH_COOKIE = 'refresh_token';
 
@@ -35,15 +35,19 @@ function clearRefreshCookie(res: Response): void {
 }
 
 export async function register(req: Request, res: Response) {
-  const meta = getClientMeta(req);
-  const result = await authService.register(req.body as RegisterInput, meta);
+  const result = await authService.register(req.body as RegisterInput, getClientMeta(req));
   setRefreshCookie(res, result.tokens.refreshToken);
   res.status(201).json({ success: true, data: { user: result.user, accessToken: result.tokens.accessToken } });
 }
 
 export async function login(req: Request, res: Response) {
-  const meta = getClientMeta(req);
-  const result = await authService.login(req.body as LoginInput, meta);
+  const result = await authService.login(req.body as LoginInput, getClientMeta(req));
+  setRefreshCookie(res, result.tokens.refreshToken);
+  res.json({ success: true, data: { user: result.user, accessToken: result.tokens.accessToken } });
+}
+
+export async function google(req: Request, res: Response) {
+  const result = await authService.googleLogin(req.body as GoogleLoginInput, getClientMeta(req));
   setRefreshCookie(res, result.tokens.refreshToken);
   res.json({ success: true, data: { user: result.user, accessToken: result.tokens.accessToken } });
 }
@@ -52,8 +56,7 @@ export async function refresh(req: Request, res: Response) {
   const token = req.cookies[REFRESH_COOKIE] as string | undefined;
   if (!token) throw new AppError(401, 'MISSING_REFRESH_TOKEN', 'Refresh token cookie is missing');
 
-  const meta = getClientMeta(req);
-  const result = await authService.refresh(token, meta);
+  const result = await authService.refresh(token, getClientMeta(req));
   setRefreshCookie(res, result.tokens.refreshToken);
   res.json({ success: true, data: { user: result.user, accessToken: result.tokens.accessToken } });
 }

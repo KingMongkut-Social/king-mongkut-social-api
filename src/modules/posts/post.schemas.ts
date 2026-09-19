@@ -4,11 +4,11 @@ import { objectIdSchema } from '../users/user.schemas.js';
 export const postIdParamsSchema = z.object({ id: objectIdSchema });
 
 export const createPostSchema = z.object({
-  title: z.string().trim().min(1).max(150),
+  title: z.string().trim().min(1).max(150).optional(),
   content: z.string().trim().min(1).max(20_000),
-  status: z.enum(['draft', 'published']).default('draft'),
+  status: z.enum(['draft', 'published']).default('published'),
   coverImage: z.string().url().nullable().optional(),
-  tags: z.array(z.string().trim().min(1)).default([]),
+  tags: z.array(z.string().trim().min(1).max(40)).max(10).default([]),
   publishedAt: z.coerce.date().nullable().optional(),
 });
 
@@ -23,10 +23,11 @@ export const listPostsQuerySchema = z.object({
   search: z.string().trim().max(100).optional(),
   status: z.enum(['draft', 'published']).optional(),
   tag: z.string().trim().optional(),
+  university: z.enum(['KMITL', 'KMUTNB', 'KMUTT']).optional(),
 });
 
 export interface CreatePostInput {
-  title: string;
+  title?: string;
   content: string;
   status: 'draft' | 'published';
   coverImage?: string | null;
@@ -49,4 +50,5 @@ export interface ListPostsQuery {
   search?: string;
   status?: 'draft' | 'published';
   tag?: string;
+  university?: 'KMITL' | 'KMUTNB' | 'KMUTT';
 }
