@@ -3,8 +3,8 @@ import { AppError } from '../../common/errors/app-error.js';
 import { PostModel } from '../posts/post.model.js';
 import { ReactionModel } from '../reactions/reaction.model.js';
 import { reactionSummaries, type ReactionSummary } from '../reactions/reaction.service.js';
-import type { Role } from '../users/user.model.js';
-import { CommentModel } from './comment.model.js';
+import type { Role, University } from '../users/user.model.js';
+import { CommentModel, type Comment } from './comment.model.js';
 import type { CreateCommentInput, UpdateCommentInput } from './comment.schemas.js';
 
 interface Viewer {
@@ -12,7 +12,19 @@ interface Viewer {
   role: Role;
 }
 
-async function assertPostViewable(postId: string, viewer?: Viewer) {
+interface PublicAuthor {
+  _id: Types.ObjectId;
+  name: string;
+  university: University;
+  avatarUrl: string | null;
+}
+
+interface PopulatedComment extends Omit<Comment, 'user'> {
+  _id: Types.ObjectId;
+  user: PublicAuthor;
+}
+
+async function assertPostViewable(postId: string, viewer?: Viewer): Promise<void> {
   const post = await PostModel.findById(postId).select('status user').lean();
   if (!post) throw new AppError(404, 'POST_NOT_FOUND', 'Post not found');
 
@@ -23,14 +35,14 @@ async function assertPostViewable(postId: string, viewer?: Viewer) {
   }
 }
 
-function publicComment(comment: any, engagement: ReactionSummary) {
+function publicComment(comment: PopulatedComment, engagement: ReactionSummary) {
   const { user, parentComment, deletedAt, ...rest } = comment;
   const deleted = Boolean(deletedAt);
   return {
     ...rest,
     author: user,
     parentCommentId: parentComment ? String(parentComment) : null,
-    content: deleted ? '' : String(comment.content),
+    content: deleted ? '' : comment.content,
     isDeleted: deleted,
     engagement,
   };
@@ -42,7 +54,7 @@ export async function listComments(postId: string, viewer?: Viewer) {
   const comments = await CommentModel.find({ post: new Types.ObjectId(postId) })
     .sort({ createdAt: 1 })
     .limit(500)
-    .populate('user', 'name university avatarUrl')
+    .populate<{ user: PublicAuthor }>('user', 'name university avatarUrl')
     .lean();
 
   const ids = comments.map((comment) => String(comment._id));
@@ -75,10 +87,11 @@ export async function createComment(postId: string, userId: string, role: Role, 
     user: new Types.ObjectId(userId),
     parentComment: input.parentCommentId ? new Types.ObjectId(input.parentCommentId) : null,
     content: input.content,
+    deletedAt: null,
   });
 
   const comment = await CommentModel.findById(created.id)
-    .populate('user', 'name university avatarUrl')
+    .populate<{ user: PublicAuthor }>('user', 'name university avatarUrl')
     .lean();
   if (!comment) throw new AppError(500, 'COMMENT_CREATE_FAILED', 'Comment could not be loaded after creation');
 
@@ -111,14 +124,14 @@ export async function updateComment(
   userId: string,
   role: Role,
   input: UpdateCommentInput,
-) {
+): Promise<void> {
   const comment = await getOwnedComment(postId, commentId, userId, role);
   if (comment.deletedAt) throw new AppError(409, 'COMMENT_DELETED', 'Deleted comments cannot be edited');
   comment.content = input.content;
   await comment.save();
 }
 
-export async function deleteComment(postId: string, commentId: string, userId: string, role: Role) {
+export async function deleteComment(postId: string, commentId: string, userId: string, role: Role): Promise<void> {
   const comment = await getOwnedComment(postId, commentId, userId, role);
   if (!comment.deletedAt) {
     comment.deletedAt = new Date();

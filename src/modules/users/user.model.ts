@@ -6,9 +6,9 @@ export type University = 'KMITL' | 'KMUTNB' | 'KMUTT';
 export interface User {
   name: string;
   email: string;
-  passwordHash?: string | null;
+  passwordHash: string | null;
   googleSub?: string;
-  avatarUrl?: string | null;
+  avatarUrl: string | null;
   university: University;
   role: Role;
   isActive: boolean;
@@ -17,7 +17,7 @@ export interface User {
   updatedAt: Date;
 }
 
-const userSchema = new Schema(
+const userSchema = new Schema<User>(
   {
     name: {
       type: String,
@@ -79,7 +79,7 @@ const userSchema = new Schema(
     versionKey: false,
     collection: 'users',
     toJSON: {
-      transform(_doc, ret: any) {
+      transform(_doc, ret) {
         delete ret.passwordHash;
         delete ret.googleSub;
         return ret;
@@ -88,4 +88,4 @@ const userSchema = new Schema(
   },
 );
 
-export const UserModel = model('User', userSchema);
+export const UserModel = model<User>('User', userSchema);

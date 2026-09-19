@@ -1,21 +1,26 @@
-import { Types } from 'mongoose';
+import { Types, type FilterQuery } from 'mongoose';
 import { AppError } from '../../common/errors/app-error.js';
 import { CommentModel } from '../comments/comment.model.js';
 import { ReactionModel } from '../reactions/reaction.model.js';
 import { reactionSummaries, type ReactionSummary } from '../reactions/reaction.service.js';
-import { UserModel, type Role } from '../users/user.model.js';
-import { PostModel } from './post.model.js';
+import { UserModel, type Role, type University } from '../users/user.model.js';
+import { PostModel, type Post } from './post.model.js';
 import type { CreatePostInput, ListPostsQuery, UpdatePostInput } from './post.schemas.js';
 
-function escapeRegex(value: string): string {
-  return value.replace(/[|\\{}()[\]^$+*?.-]/g, '\\$&');
+interface PublicAuthor {
+  _id: Types.ObjectId;
+  name: string;
+  university: University;
+  avatarUrl: string | null;
 }
 
-function idOf(value: unknown): string {
-  if (value && typeof value === 'object' && '_id' in value) {
-    return String((value as { _id: unknown })._id);
-  }
-  return String(value);
+interface PopulatedPost extends Omit<Post, 'user'> {
+  _id: Types.ObjectId;
+  user: PublicAuthor;
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function emptyEngagement(): ReactionSummary {
@@ -26,7 +31,7 @@ function emptyEngagement(): ReactionSummary {
   };
 }
 
-async function decoratePosts(posts: any[], viewerId?: string) {
+async function decoratePosts(posts: PopulatedPost[], viewerId?: string) {
   const ids = posts.map((post) => String(post._id));
   if (ids.length === 0) return [];
 
@@ -67,21 +72,25 @@ export async function createPost(userId: string, input: CreatePostInput) {
     ...input,
     title: input.title?.trim() || derivedTitle(input.content),
     user: new Types.ObjectId(userId),
+    coverImage: input.coverImage ?? null,
+    tags: input.tags,
     publishedAt,
   });
 }
 
 export async function listPublished(query: ListPostsQuery, viewerId?: string) {
-  const filter: any = { status: 'published' };
+  const filter: FilterQuery<Post> = { status: 'published' };
 
   if (query.search) {
     const pattern = new RegExp(escapeRegex(query.search), 'i');
     filter.$or = [{ title: pattern }, { content: pattern }];
   }
-  if (query.tag) filter.tags = query.tag;
+  if (query.tag) {
+    filter.tags = { $in: [query.tag] };
+  }
   if (query.university) {
-    const universityUsers = await UserModel.find({ university: query.university }).distinct('_id');
-    filter.user = { $in: universityUsers };
+    const authors = await UserModel.find({ university: query.university }).select('_id').lean();
+    filter.user = { $in: authors.map((author) => author._id) };
   }
 
   const skip = (query.page - 1) * query.limit;
@@ -90,7 +99,7 @@ export async function listPublished(query: ListPostsQuery, viewerId?: string) {
       .sort({ publishedAt: -1, createdAt: -1 })
       .skip(skip)
       .limit(query.limit)
-      .populate('user', 'name university avatarUrl')
+      .populate<{ user: PublicAuthor }>('user', 'name university avatarUrl')
       .lean(),
     PostModel.countDocuments(filter),
   ]);
@@ -105,9 +114,11 @@ export async function listPublished(query: ListPostsQuery, viewerId?: string) {
 }
 
 export async function listMine(userId: string, query: ListPostsQuery) {
-  const filter: any = { user: new Types.ObjectId(userId) };
+  const filter: FilterQuery<Post> = { user: new Types.ObjectId(userId) };
 
-  if (query.status) filter.status = query.status;
+  if (query.status) {
+    filter.status = query.status;
+  }
   if (query.search) {
     const pattern = new RegExp(escapeRegex(query.search), 'i');
     filter.$or = [{ title: pattern }, { content: pattern }];
@@ -119,7 +130,7 @@ export async function listMine(userId: string, query: ListPostsQuery) {
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(query.limit)
-      .populate('user', 'name university avatarUrl')
+      .populate<{ user: PublicAuthor }>('user', 'name university avatarUrl')
       .lean(),
     PostModel.countDocuments(filter),
   ]);
@@ -134,11 +145,14 @@ export async function listMine(userId: string, query: ListPostsQuery) {
 }
 
 export async function getPost(id: string, viewer?: { userId: string; role: Role }) {
-  const post = await PostModel.findById(id).populate('user', 'name university avatarUrl').lean();
+  const post = await PostModel.findById(id)
+    .populate<{ user: PublicAuthor }>('user', 'name university avatarUrl')
+    .lean();
   if (!post) throw new AppError(404, 'POST_NOT_FOUND', 'Post not found');
 
-  const authorId = idOf(post.user);
-  const canViewPrivate = Boolean(viewer && (viewer.role === 'admin' || viewer.userId === authorId));
+  const canViewPrivate = Boolean(
+    viewer && (viewer.role === 'admin' || viewer.userId === String(post.user._id)),
+  );
   if (post.status !== 'published' && !canViewPrivate) {
     throw new AppError(404, 'POST_NOT_FOUND', 'Post not found');
   }
@@ -162,12 +176,18 @@ export async function updatePost(id: string, userId: string, role: Role, input: 
   if (input.status === 'published' && !post.publishedAt) post.publishedAt = new Date();
   if (input.status === 'draft') post.publishedAt = null;
 
-  Object.assign(post, input);
+  if (input.title !== undefined) post.title = input.title;
+  if (input.content !== undefined) post.content = input.content;
+  if (input.status !== undefined) post.status = input.status;
+  if (input.coverImage !== undefined) post.coverImage = input.coverImage;
+  if (input.tags !== undefined) post.tags = input.tags;
+  if (input.publishedAt !== undefined) post.publishedAt = input.publishedAt;
+
   await post.save();
   return post;
 }
 
-export async function deletePost(id: string, userId: string, role: Role) {
+export async function deletePost(id: string, userId: string, role: Role): Promise<void> {
   const post = await getOwnedPost(id, userId, role);
   const comments = await CommentModel.find({ post: post._id }).select('_id').lean();
   const commentIds = comments.map((comment) => comment._id);

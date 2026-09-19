@@ -59,7 +59,7 @@ export async function reactionSummaries(
 
   for (const reaction of viewerReactions) {
     const summary = summaries.get(String(reaction.targetId));
-    if (summary) summary.viewerReaction = reaction.type as ReactionType;
+    if (summary) summary.viewerReaction = reaction.type;
   }
 
   return summaries;

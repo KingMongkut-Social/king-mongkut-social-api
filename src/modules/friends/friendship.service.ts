@@ -1,47 +1,34 @@
-import { Types } from 'mongoose';
+import { Types, type FilterQuery } from 'mongoose';
 import { AppError } from '../../common/errors/app-error.js';
-import { UserModel } from '../users/user.model.js';
+import { UserModel, type User } from '../users/user.model.js';
 import { FriendshipModel } from './friendship.model.js';
+import type { SearchUsersQueryInput } from './friendship.schemas.js';
 
 function escapeRegex(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-export interface SearchUsersQuery {
-  q?: string | undefined;
-  university?: 'KMITL' | 'KMUTNB' | 'KMUTT' | undefined;
-  limit?: number | undefined;
-}
-
-export async function searchUsers(currentUserId: string, query: SearchUsersQuery) {
-  if (!currentUserId) {
-    throw new AppError(401, 'UNAUTHORIZED', 'Authentication required');
-  }
-
+export async function searchUsers(currentUserId: string, query: SearchUsersQueryInput) {
   const currentId = new Types.ObjectId(currentUserId);
-  const limit = Math.min(query.limit ?? 20, 50);
-
-  const filter: any = {
+  const filter: FilterQuery<User> = {
     _id: { $ne: currentId },
   };
 
   if (query.q) {
     filter.name = new RegExp(escapeRegex(query.q), 'i');
   }
-
   if (query.university) {
     filter.university = query.university;
   }
 
   const users = await UserModel.find(filter)
-    .select('name email university')
-    .limit(limit)
+    .select('name email university avatarUrl')
+    .limit(query.limit)
     .lean();
 
   if (users.length === 0) return [];
 
-  const targetIds = users.map((u) => u._id);
-
+  const targetIds = users.map((user) => user._id);
   const friendships = await FriendshipModel.find({
     $or: [
       { requester: currentId, recipient: { $in: targetIds } },
@@ -50,21 +37,21 @@ export async function searchUsers(currentUserId: string, query: SearchUsersQuery
   }).lean();
 
   return users.map((user) => {
-    const rel = friendships.find(
-      (f) =>
-        (String(f.requester) === currentUserId && String(f.recipient) === String(user._id)) ||
-        (String(f.recipient) === currentUserId && String(f.requester) === String(user._id)),
+    const relationship = friendships.find(
+      (friendship) =>
+        (String(friendship.requester) === currentUserId && String(friendship.recipient) === String(user._id)) ||
+        (String(friendship.recipient) === currentUserId && String(friendship.requester) === String(user._id)),
     );
 
     let status: 'none' | 'pending_sent' | 'pending_received' | 'friends' = 'none';
     let requestId: string | null = null;
 
-    if (rel) {
-      requestId = String(rel._id);
-      if (rel.status === 'accepted') {
+    if (relationship) {
+      requestId = String(relationship._id);
+      if (relationship.status === 'accepted') {
         status = 'friends';
-      } else if (rel.status === 'pending') {
-        status = String(rel.requester) === currentUserId ? 'pending_sent' : 'pending_received';
+      } else if (relationship.status === 'pending') {
+        status = String(relationship.requester) === currentUserId ? 'pending_sent' : 'pending_received';
       }
     }
 
@@ -72,6 +59,7 @@ export async function searchUsers(currentUserId: string, query: SearchUsersQuery
       id: String(user._id),
       name: user.name,
       university: user.university,
+      avatarUrl: user.avatarUrl,
       relationshipStatus: status,
       requestId,
     };
@@ -88,13 +76,13 @@ export async function sendFriendRequest(requesterId: string, recipientId: string
     throw new AppError(404, 'USER_NOT_FOUND', 'Target user not found');
   }
 
-  const reqObjId = new Types.ObjectId(requesterId);
-  const recObjId = new Types.ObjectId(recipientId);
+  const requester = new Types.ObjectId(requesterId);
+  const recipient = new Types.ObjectId(recipientId);
 
   const existing = await FriendshipModel.findOne({
     $or: [
-      { requester: reqObjId, recipient: recObjId },
-      { requester: recObjId, recipient: reqObjId },
+      { requester, recipient },
+      { requester: recipient, recipient: requester },
     ],
   });
 
@@ -105,16 +93,16 @@ export async function sendFriendRequest(requesterId: string, recipientId: string
     if (existing.status === 'pending') {
       throw new AppError(409, 'REQUEST_PENDING', 'Friend request already exists');
     }
-    existing.requester = reqObjId;
-    existing.recipient = recObjId;
+    existing.requester = requester;
+    existing.recipient = recipient;
     existing.status = 'pending';
     await existing.save();
     return existing;
   }
 
   return FriendshipModel.create({
-    requester: reqObjId,
-    recipient: recObjId,
+    requester,
+    recipient,
     status: 'pending',
   });
 }
@@ -128,7 +116,6 @@ export async function respondFriendRequest(recipientId: string, requestId: strin
   if (String(request.recipient) !== recipientId) {
     throw new AppError(403, 'FORBIDDEN', 'Cannot respond to this request');
   }
-
   if (request.status !== 'pending') {
     throw new AppError(400, 'BAD_REQUEST', 'Request has already been handled');
   }

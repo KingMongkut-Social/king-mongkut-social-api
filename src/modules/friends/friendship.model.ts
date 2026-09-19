@@ -10,7 +10,7 @@ export interface Friendship {
   updatedAt: Date;
 }
 
-const friendshipSchema = new Schema(
+const friendshipSchema = new Schema<Friendship>(
   {
     requester: {
       type: Schema.Types.ObjectId,
@@ -39,7 +39,6 @@ const friendshipSchema = new Schema(
   },
 );
 
-// ป้องกันการส่งคำขอซ้ำในทิศทางเดียวกัน
 friendshipSchema.index({ requester: 1, recipient: 1 }, { unique: true });
 
-export const FriendshipModel = model('Friendship', friendshipSchema);
+export const FriendshipModel = model<Friendship>('Friendship', friendshipSchema);

@@ -7,14 +7,14 @@ export interface Post {
   title: string;
   content: string;
   status: PostStatus;
-  coverImage?: string | null;
-  tags?: string[];
-  publishedAt?: Date | null;
+  coverImage: string | null;
+  tags: string[];
+  publishedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
 
-const postSchema = new Schema(
+const postSchema = new Schema<Post>(
   {
     user: {
       type: Schema.Types.ObjectId,
@@ -65,4 +65,7 @@ const postSchema = new Schema(
   },
 );
 
-export const PostModel = model('Post', postSchema);
+postSchema.index({ status: 1, publishedAt: -1, createdAt: -1 });
+postSchema.index({ user: 1, createdAt: -1 });
+
+export const PostModel = model<Post>('Post', postSchema);

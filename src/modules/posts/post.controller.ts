@@ -3,41 +3,52 @@ import { AppError } from '../../common/errors/app-error.js';
 import type { CreatePostInput, ListPostsQuery, UpdatePostInput } from './post.schemas.js';
 import * as postService from './post.service.js';
 
+interface PostIdParams {
+  id: string;
+}
+
 export async function create(req: Request, res: Response): Promise<void> {
   if (!req.auth) throw new AppError(401, 'UNAUTHORIZED', 'Authentication required');
-  const post = await postService.createPost(req.auth.userId, req.body as CreatePostInput);
+  const input = req.body as unknown as CreatePostInput;
+  const post = await postService.createPost(req.auth.userId, input);
   res.status(201).json({ success: true, data: { post } });
 }
 
 export async function list(req: Request, res: Response): Promise<void> {
-  const result = await postService.listPublished(req.query as unknown as ListPostsQuery, req.auth?.userId);
+  const query = req.query as unknown as ListPostsQuery;
+  const result = await postService.listPublished(query, req.auth?.userId);
   res.json({ success: true, data: result });
 }
 
 export async function mine(req: Request, res: Response): Promise<void> {
   if (!req.auth) throw new AppError(401, 'UNAUTHORIZED', 'Authentication required');
-  const result = await postService.listMine(req.auth.userId, req.query as unknown as ListPostsQuery);
+  const query = req.query as unknown as ListPostsQuery;
+  const result = await postService.listMine(req.auth.userId, query);
   res.json({ success: true, data: result });
 }
 
 export async function getById(req: Request, res: Response): Promise<void> {
-  const post = await postService.getPost(req.params.id as string, req.auth);
+  const params = req.params as unknown as PostIdParams;
+  const post = await postService.getPost(params.id, req.auth);
   res.json({ success: true, data: { post } });
 }
 
 export async function update(req: Request, res: Response): Promise<void> {
   if (!req.auth) throw new AppError(401, 'UNAUTHORIZED', 'Authentication required');
+  const params = req.params as unknown as PostIdParams;
+  const input = req.body as unknown as UpdatePostInput;
   const post = await postService.updatePost(
-    req.params.id as string,
+    params.id,
     req.auth.userId,
     req.auth.role,
-    req.body as UpdatePostInput,
+    input,
   );
   res.json({ success: true, data: { post } });
 }
 
 export async function remove(req: Request, res: Response): Promise<void> {
   if (!req.auth) throw new AppError(401, 'UNAUTHORIZED', 'Authentication required');
-  await postService.deletePost(req.params.id as string, req.auth.userId, req.auth.role);
+  const params = req.params as unknown as PostIdParams;
+  await postService.deletePost(params.id, req.auth.userId, req.auth.role);
   res.status(204).send();
 }

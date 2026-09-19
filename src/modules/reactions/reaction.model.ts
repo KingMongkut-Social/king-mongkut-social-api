@@ -13,7 +13,7 @@ export interface Reaction {
   updatedAt: Date;
 }
 
-const reactionSchema = new Schema(
+const reactionSchema = new Schema<Reaction>(
   {
     user: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     targetType: { type: String, enum: ['post', 'comment'], required: true, index: true },
@@ -30,4 +30,4 @@ const reactionSchema = new Schema(
 reactionSchema.index({ user: 1, targetType: 1, targetId: 1 }, { unique: true });
 reactionSchema.index({ targetType: 1, targetId: 1, type: 1 });
 
-export const ReactionModel = model('Reaction', reactionSchema);
+export const ReactionModel = model<Reaction>('Reaction', reactionSchema);
