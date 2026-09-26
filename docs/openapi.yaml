@@ -5,43 +5,103 @@ info:
 servers:
   - url: http://localhost:4000/api/v1
 paths:
+  /auth/google:
+    get:
+      summary: Start university Google sign-in or automatic registration
+      parameters:
+        - in: query
+          name: returnTo
+          schema: { type: string, default: /dashboard }
+          description: Local frontend path; unsafe URLs and auth routes use /dashboard.
+      responses:
+        '302':
+          description: Redirect to Google's account selector; sets an HttpOnly OAuth flow cookie.
+          headers:
+            Location: { schema: { type: string, format: uri } }
+        '303': { description: Redirect to frontend login with a safe error code if unavailable. }
+        '429': { description: Too many login attempts. }
+  /auth/google/callback:
+    get:
+      summary: Consume OAuth transaction and verify Google identity
+      parameters:
+        - in: query
+          name: state
+          required: true
+          schema: { type: string }
+        - in: query
+          name: code
+          schema: { type: string }
+        - in: query
+          name: error
+          schema: { type: string }
+      responses:
+        '303':
+          description: Sets refresh cookie and redirects to frontend /auth/callback on success, or /login?error=CODE on failure. Tokens are never put in the redirect URL.
   /auth/register:
     post:
-      summary: Register
+      deprecated: true
+      summary: Retired password registration
+      responses:
+        '410': { description: GOOGLE_LOGIN_REQUIRED — use Google sign-in. }
+  /auth/login:
+    post:
+      deprecated: true
+      summary: Retired password login
+      responses:
+        '410': { description: GOOGLE_LOGIN_REQUIRED — use Google sign-in. }
+  /auth/refresh:
+    post:
+      summary: Rotate refresh cookie and restore the authenticated user
+      security: [{ refreshCookie: [] }]
+      responses:
+        '200':
+          description: User and new access token, with a rotated HttpOnly refresh cookie.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuthResponse' }
+        '401': { description: Missing, expired, revoked or legacy refresh token. }
+        '403': { description: Account is inactive. }
+  /auth/logout:
+    post:
+      summary: Revoke current refresh session and clear its cookie
+      responses:
+        '204': { description: Logged out; idempotent even with no valid cookie. }
+  /auth/me:
+    get:
+      summary: Current active Google user, including profile completion status
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Current user
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserResponse' }
+        '401': { description: Sign in with Google again. }
+        '403': { description: Account is inactive. }
+  /auth/profile:
+    patch:
+      summary: Persist faculty and department for the current Google user
+      security: [{ bearerAuth: [] }]
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [name, email, password]
+              additionalProperties: false
+              required: [faculty, department]
               properties:
-                name: { type: string }
-                email: { type: string, format: email }
-                password: { type: string, minLength: 10 }
+                faculty: { type: string, minLength: 1, maxLength: 150 }
+                department: { type: string, minLength: 1, maxLength: 150 }
       responses:
-        '201': { description: Registered }
-  /auth/login:
-    post:
-      summary: Login
-      responses:
-        '200': { description: Logged in }
-  /auth/refresh:
-    post:
-      summary: Rotate refresh token and issue a new access token
-      responses:
-        '200': { description: Refreshed }
-  /auth/logout:
-    post:
-      summary: Revoke current refresh session
-      responses:
-        '204': { description: Logged out }
-  /auth/me:
-    get:
-      summary: Current user
-      security: [{ bearerAuth: [] }]
-      responses:
-        '200': { description: Current user }
+        '200':
+          description: Updated user; needsProfileCompletion is false.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserResponse' }
+        '401': { description: Google authentication required. }
+        '403': { description: Account is inactive. }
+        '422': { description: Missing, blank, oversized or unexpected input fields. }
   /posts:
     get:
       summary: List published posts
@@ -94,3 +154,43 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
+    refreshCookie:
+      type: apiKey
+      in: cookie
+      name: refresh_token
+  schemas:
+    User:
+      type: object
+      required: [_id, name, email, university, role, needsProfileCompletion, createdAt, updatedAt]
+      properties:
+        _id: { type: string }
+        name: { type: string }
+        email: { type: string, format: email }
+        university: { type: string, enum: [KMITL, KMUTNB, KMUTT] }
+        role: { type: string, enum: [user, admin] }
+        faculty: { type: string, maxLength: 150 }
+        department: { type: string, maxLength: 150 }
+        needsProfileCompletion: { type: boolean, readOnly: true }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    UserResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success: { const: true }
+        data:
+          type: object
+          required: [user]
+          properties:
+            user: { $ref: '#/components/schemas/User' }
+    AuthResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success: { const: true }
+        data:
+          type: object
+          required: [user, accessToken]
+          properties:
+            user: { $ref: '#/components/schemas/User' }
+            accessToken: { type: string }

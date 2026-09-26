@@ -34,9 +34,9 @@ export const errorHandler: ErrorRequestHandler = (error, req, res, _next) => {
   }
 
   if (normalized.statusCode >= 500) {
-    logger.error({ err: error, method: req.method, path: req.originalUrl }, normalized.message);
+    logger.error({ err: error, method: req.method, path: req.path }, normalized.message);
   } else {
-    logger.warn({ err: error, method: req.method, path: req.originalUrl }, normalized.message);
+    logger.warn({ err: error, method: req.method, path: req.path }, normalized.message);
   }
 
   res.status(normalized.statusCode).json({

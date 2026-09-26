@@ -19,7 +19,7 @@ export async function createPost(userId: string, input: CreatePostInput) {
 }
 
 export async function listPublished(query: ListPostsQuery) {
-  const filter: any = {
+  const filter: Record<string, unknown> = {
     status: 'published',
   };
 
@@ -38,7 +38,7 @@ export async function listPublished(query: ListPostsQuery) {
       .sort({ publishedAt: -1, createdAt: -1 })
       .skip(skip)
       .limit(query.limit)
-      .populate('user', 'name university')
+      .populate('user', 'name university faculty department')
       .lean(),
     PostModel.countDocuments(filter),
   ]);
@@ -47,7 +47,7 @@ export async function listPublished(query: ListPostsQuery) {
 }
 
 export async function listMine(userId: string, query: ListPostsQuery) {
-  const filter: any = {
+  const filter: Record<string, unknown> = {
     user: new Types.ObjectId(userId),
   };
 
@@ -70,10 +70,10 @@ export async function listMine(userId: string, query: ListPostsQuery) {
 }
 
 export async function getPost(id: string, viewer?: { userId: string; role: Role }) {
-  const post = await PostModel.findById(id).populate('user', 'name university').lean();
+  const post = await PostModel.findById(id).populate<{ user: { _id: Types.ObjectId; name: string; university: string; faculty?: string; department?: string } | null }>('user', 'name university faculty department').lean();
   if (!post) throw new AppError(404, 'POST_NOT_FOUND', 'Post not found');
 
-  const authorId = String(post.user);
+  const authorId = post.user ? String(post.user._id) : '';
   const canViewPrivate = Boolean(viewer && (viewer.role === 'admin' || viewer.userId === authorId));
 
   if (post.status !== 'published' && !canViewPrivate) {

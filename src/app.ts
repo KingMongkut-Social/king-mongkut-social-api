@@ -22,6 +22,11 @@ export function createApp() {
   app.use(
     pinoHttp({
       logger,
+      serializers: {
+        req(req: { id?: unknown; method?: unknown; url?: string }) {
+          return { id: req.id, method: req.method, url: req.url?.split('?')[0] };
+        },
+      },
       genReqId(req: express.Request, res: express.Response) {
         const supplied = req.headers['x-request-id'];
         const id = typeof supplied === 'string' && supplied.length <= 100 ? supplied : randomUUID();

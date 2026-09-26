@@ -21,7 +21,7 @@ interface RefreshClaims {
 }
 
 export async function signAccessToken(userId: string, role: Role): Promise<string> {
-  return new SignJWT({ role, tokenType: 'access' })
+  return new SignJWT({ role, tokenType: 'access', authVersion: 2 })
     .setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
     .setIssuer(ISSUER)
     .setAudience(AUDIENCE)
@@ -33,7 +33,7 @@ export async function signAccessToken(userId: string, role: Role): Promise<strin
 
 export async function signRefreshToken(userId: string): Promise<{ token: string; jti: string; expiresAt: Date }> {
   const jti = randomUUID();
-  const token = await new SignJWT({ tokenType: 'refresh' })
+  const token = await new SignJWT({ tokenType: 'refresh', authVersion: 2 })
     .setProtectedHeader({ alg: 'HS256', typ: 'JWT' })
     .setIssuer(ISSUER)
     .setAudience(AUDIENCE)
@@ -58,7 +58,7 @@ export async function verifyAccessToken(token: string): Promise<AccessClaims> {
       audience: AUDIENCE,
     });
     if (
-      typeof payload.sub !== 'string'
+      typeof payload.sub !== 'string' || !/^[a-f\d]{24}$/i.test(payload.sub) || payload.authVersion !== 2
       || payload.tokenType !== 'access'
       || (payload.role !== 'user' && payload.role !== 'admin')
     ) {
@@ -81,7 +81,7 @@ export async function verifyRefreshToken(token: string): Promise<RefreshClaims> 
       issuer: ISSUER,
       audience: AUDIENCE,
     });
-    if (typeof payload.sub !== 'string' || typeof payload.jti !== 'string' || payload.tokenType !== 'refresh') {
+    if (typeof payload.sub !== 'string' || !/^[a-f\d]{24}$/i.test(payload.sub) || payload.authVersion !== 2 || typeof payload.jti !== 'string' || payload.tokenType !== 'refresh') {
       throw new AppError(401, 'INVALID_REFRESH_TOKEN', 'Invalid refresh token');
     }
     return { sub: payload.sub, jti: payload.jti };

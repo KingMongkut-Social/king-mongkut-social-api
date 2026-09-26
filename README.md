@@ -6,10 +6,10 @@ Backend สำหรับ King Mongkut Social Posts + Authentication ด้ว�
 
 - TypeScript strict mode + ESM
 - Express 5 + Mongoose
-- Register / Login / Me / Refresh / Logout
+- Google-only sign-in / automatic registration / persisted profile onboarding / Me / Refresh / Logout
 - Short-lived access token ผ่าน `Authorization: Bearer ...`
 - Refresh token ผ่าน `HttpOnly` cookie + token rotation + server-side revocation
-- Password hashing ด้วย bcrypt
+- จำกัดอีเมล Google Workspace ของ 3 พระจอมฯ และตรวจ identity ที่ backend
 - CRUD Posts พร้อม ownership (`user`) และ override (`admin`)
 - Public published posts + private drafts ของเจ้าของ
 - Zod validation
@@ -58,6 +58,8 @@ NODE_ENV=production
 COOKIE_SECURE=true
 COOKIE_SAME_SITE=none
 CORS_ORIGINS=https://your-frontend.example.com
+FRONTEND_URL=https://your-frontend.example.com
+GOOGLE_REDIRECT_URI=https://your-api.example.com/api/v1/auth/google/callback
 TRUST_PROXY=1
 ```
 
@@ -67,8 +69,10 @@ TRUST_PROXY=1
 
 | Method | Endpoint | Auth | Purpose |
 |---|---|---|---|
-| POST | `/api/v1/auth/register` | No | Register |
-| POST | `/api/v1/auth/login` | No | Login |
+| GET | `/api/v1/auth/google` | No | Start Google sign-in |
+| GET | `/api/v1/auth/google/callback` | OAuth cookie + state | Verify Google and create session |
+| PATCH | `/api/v1/auth/profile` | Bearer | Save faculty and department |
+| POST | `/api/v1/auth/login`, `/api/v1/auth/register` | No | Retired: returns 410 |
 | POST | `/api/v1/auth/refresh` | Refresh cookie | Rotate token |
 | POST | `/api/v1/auth/logout` | Refresh cookie | Revoke session |
 | GET | `/api/v1/auth/me` | Bearer | Current user |
@@ -79,15 +83,13 @@ TRUST_PROXY=1
 | PATCH | `/api/v1/posts/:id` | Bearer | Update own/admin |
 | DELETE | `/api/v1/posts/:id` | Bearer | Delete own/admin |
 
-### Register example
+### Google sign-in
 
-```bash
-curl -i http://localhost:4000/api/v1/auth/register \
-  -H 'content-type: application/json' \
-  -d '{"name":"Demo User","email":"demo@example.com","password":"StrongPass123"}'
-```
+ตั้งค่า OAuth ตาม [คู่มือ Google auth](docs/google-auth.md) ก่อนใช้งานจริง แล้วเปิดหน้า `/login` ของ frontend
+ระบบจะเชื่อมบัญชีเดิมหรือสมัครใหม่จากอีเมลที่ Google ยืนยัน จากนั้นให้กรอกคณะและภาควิชาถ้าข้อมูลยังไม่ครบ
 
-Response body จะคืน `accessToken`; refresh token จะอยู่ใน `HttpOnly` cookie
+หลัง callback ระบบเก็บ refresh token ใน HttpOnly cookie และ frontend เรียก `/auth/refresh` เพื่อรับ access token
+API ของสมาชิกจะตอบ `403 PROFILE_INCOMPLETE` จนกว่าจะบันทึกทั้งสองช่องผ่าน `/auth/profile`
 
 ### Authenticated request
 

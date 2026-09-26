@@ -21,7 +21,7 @@ export async function searchUsers(currentUserId: string, query: SearchUsersQuery
   const currentId = new Types.ObjectId(currentUserId);
   const limit = Math.min(query.limit ?? 20, 50);
 
-  const filter: any = {
+  const filter: Record<string, unknown> = {
     _id: { $ne: currentId },
   };
 
@@ -34,7 +34,7 @@ export async function searchUsers(currentUserId: string, query: SearchUsersQuery
   }
 
   const users = await UserModel.find(filter)
-    .select('name email university')
+    .select('name email university faculty department')
     .limit(limit)
     .lean();
 
@@ -72,6 +72,8 @@ export async function searchUsers(currentUserId: string, query: SearchUsersQuery
       id: String(user._id),
       name: user.name,
       university: user.university,
+      faculty: user.faculty,
+      department: user.department,
       relationshipStatus: status,
       requestId,
     };

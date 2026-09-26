@@ -8,7 +8,7 @@ export async function searchUsers(req: Request, res: Response) {
 
   const results = await friendService.searchUsers(req.auth.userId, {
     q: typeof q === 'string' ? q : undefined,
-    university: typeof university === 'string' ? (university as any) : undefined,
+    university: university === 'KMITL' || university === 'KMUTNB' || university === 'KMUTT' ? university : undefined,
     limit: limit ? Number(limit) : undefined,
   });
 
@@ -17,7 +17,7 @@ export async function searchUsers(req: Request, res: Response) {
 
 export async function sendRequest(req: Request, res: Response) {
   if (!req.auth) throw new AppError(401, 'UNAUTHORIZED', 'Authentication required');
-  const { targetUserId } = req.body;
+  const { targetUserId } = req.body as { targetUserId: string };
 
   const friendship = await friendService.sendFriendRequest(req.auth.userId, targetUserId);
   res.status(201).json({ success: true, data: friendship });
@@ -25,7 +25,7 @@ export async function sendRequest(req: Request, res: Response) {
 
 export async function respondRequest(req: Request, res: Response) {
   if (!req.auth) throw new AppError(401, 'UNAUTHORIZED', 'Authentication required');
-  const { requestId, action } = req.body;
+  const { requestId, action } = req.body as { requestId: string; action: 'accept' | 'reject' };
 
   const result = await friendService.respondFriendRequest(req.auth.userId, requestId, action);
   res.json({ success: true, data: result });

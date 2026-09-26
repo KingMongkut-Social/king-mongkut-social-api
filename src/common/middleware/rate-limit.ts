@@ -26,3 +26,6 @@ export const authRateLimit = rateLimit({
   limit: 20,
   skipSuccessfulRequests: true,
 });
+
+// Count redirects too, otherwise starting OAuth could create unlimited transactions.
+export const googleAuthRateLimit = rateLimit({ ...common, windowMs: 15 * 60 * 1000, limit: 40 });
