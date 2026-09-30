@@ -4,6 +4,7 @@ import { postRouter } from '../modules/posts/post.routes.js';
 import { friendshipRoutes } from '../modules/friends/friendship.routes.js';
 import { chatRouter } from '../modules/chats/chat.routes.js';
 import { profileRouter } from '../modules/users/profile.routes.js';
+import { notificationRouter } from '../modules/notifications/notification.routes.js';
 
 export const apiRouter = Router();
 
@@ -12,3 +13,4 @@ apiRouter.use('/posts', postRouter);
 apiRouter.use('/friends', friendshipRoutes);
 apiRouter.use('/chats', chatRouter);
 apiRouter.use('/users', profileRouter);
+apiRouter.use('/notifications', notificationRouter);

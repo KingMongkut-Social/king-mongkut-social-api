@@ -50,6 +50,10 @@ export const listPostsQuerySchema = z.object({
   tag: z.string().trim().optional(),
 });
 
+export const reactionSchema = z.object({
+  reaction: z.enum(['LIKE', 'LOVE', 'HAHA', 'WOW', 'SAD', 'ANGRY']),
+});
+
 export const createCommentSchema = z.object({
   content: z.string().trim().min(1).max(2000),
   parentId: objectIdSchema.nullable().optional(),
@@ -63,5 +67,6 @@ export const listCommentsQuerySchema = z.object({
 export type CreatePostInput = z.infer<typeof createPostSchema>;
 export type UpdatePostInput = z.infer<typeof updatePostSchema>;
 export type ListPostsQuery = z.infer<typeof listPostsQuerySchema>;
+export type ReactionInput = z.infer<typeof reactionSchema>;
 export type CreateCommentInput = z.infer<typeof createCommentSchema>;
 export type ListCommentsQuery = z.infer<typeof listCommentsQuerySchema>;
