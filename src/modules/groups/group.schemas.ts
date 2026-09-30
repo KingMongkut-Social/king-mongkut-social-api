@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { objectIdSchema } from '../users/user.schemas.js';
 
 export const groupParamsSchema = z.object({ id: objectIdSchema });
+export const groupInviteParamsSchema = z.object({ inviteId: objectIdSchema });
 export const groupListQuerySchema = z.object({
   q: z.string().trim().max(100).optional(),
   university: z.enum(['KMITL', 'KMUTT', 'KMUTNB']).optional(),
@@ -16,4 +17,11 @@ export const createGroupSchema = z.object({
 });
 export const createGroupPostSchema = z.object({
   content: z.string().trim().min(1).max(20000),
+});
+
+export const createGroupInviteSchema = z.object({
+  userId: objectIdSchema,
+});
+export const respondGroupInviteSchema = z.object({
+  action: z.enum(['accept', 'reject']),
 });
