@@ -1,3 +1,4 @@
+import { Types } from 'mongoose';
 import { AppError } from '../../common/errors/app-error.js';
 import { emitToUser } from '../chats/chat.realtime.js';
 import { UserModel } from '../users/user.model.js';
@@ -14,15 +15,22 @@ type NotificationView = {
   createdAt: Date;
 };
 
+function objectIdString(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (value instanceof Types.ObjectId) return value.toHexString();
+  return '';
+}
+
 function serialize(item: NotificationView) {
   const actor = item.actor && typeof item.actor === 'object'
     ? item.actor as { _id?: unknown; name?: string; avatarUrl?: string | null; university?: string }
     : null;
+  const actorId = objectIdString(actor?._id);
   return {
-    id: String(item._id),
-    recipientId: String(item.recipient),
-    actor: actor?._id ? {
-      id: String(actor._id),
+    id: objectIdString(item._id),
+    recipientId: objectIdString(item.recipient),
+    actor: actorId ? {
+      id: actorId,
       name: actor.name ?? 'ผู้ใช้',
       avatarUrl: actor.avatarUrl ?? null,
       university: actor.university ?? '',
@@ -61,7 +69,7 @@ export async function createNotification(input: {
     .populate('actor', 'name avatarUrl university').lean();
   if (!populated) return null;
 
-  const payload = serialize(populated as unknown as NotificationView);
+  const payload = serialize(populated);
   emitToUser(input.recipientId, 'notification:new', payload);
   return payload;
 }
@@ -91,7 +99,7 @@ export async function markRead(userId: string, notificationId: string) {
     { returnDocument: 'after' },
   ).populate('actor', 'name avatarUrl university').lean();
   if (!item) throw new AppError(404, 'NOTIFICATION_NOT_FOUND', 'Notification not found');
-  const payload = serialize(item as unknown as NotificationView);
+  const payload = serialize(item);
   emitToUser(userId, 'notification:read', { id: notificationId });
   return payload;
 }

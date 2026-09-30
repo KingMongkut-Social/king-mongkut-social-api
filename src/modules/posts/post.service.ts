@@ -56,7 +56,7 @@ async function enrichPosts(posts: LeanPost[], viewerId?: string) {
     id, Object.values(counts).reduce((sum, count) => sum + count, 0),
   ]));
   const commentCounts = new Map(comments.map((item) => [String(item._id), item.count]));
-  const ownReaction = new Map(ownLikes.map((item) => [String(item.post), (item.reaction ?? 'LIKE') as PostReaction]));
+  const ownReaction = new Map(ownLikes.map((item) => [String(item.post), item.reaction ?? 'LIKE']));
   const liked = new Set(ownReaction.keys());
   const saved = new Set(ownBookmarks.map((item) => String(item.post)));
 

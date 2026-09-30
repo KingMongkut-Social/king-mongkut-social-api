@@ -97,7 +97,7 @@ export async function createGroup(
   const populated = await CommunityGroupModel.findById(group._id)
     .populate('creator', 'name username avatarUrl university').lean();
   if (!populated) throw new AppError(404, 'GROUP_NOT_FOUND', 'Group not found');
-  return serializeGroup(populated as unknown as GroupView, userId);
+  return serializeGroup(populated, userId);
 }
 
 export async function getGroup(id: string, viewerId?: string) {
@@ -108,7 +108,7 @@ export async function getGroup(id: string, viewerId?: string) {
     const membership = viewerId ? await GroupMemberModel.exists({ group: id, user: viewerId }) : null;
     if (!membership) throw new AppError(404, 'GROUP_NOT_FOUND', 'Group not found');
   }
-  return serializeGroup(group as unknown as GroupView, viewerId);
+  return serializeGroup(group, viewerId);
 }
 
 export async function joinGroup(id: string, userId: string) {
