@@ -213,11 +213,10 @@ describe('completed social platform APIs', () => {
     const invitations = await request(app).get('/api/v1/groups/invitations')
       .auth(bob.token, { type: 'bearer' })
       .expect(200);
-    expect(data<{ items: Array<{ id: string; group: { id: string; name: string } }> }>(invitations).items)
-      .toEqual([expect.objectContaining({
-        id: inviteId,
-        group: expect.objectContaining({ id: groupId, name: 'Private Robotics Lab' }),
-      })]);
+    const invitationItems = data<{ items: Array<{ id: string; group: { id: string; name: string } }> }>(invitations).items;
+    expect(invitationItems).toHaveLength(1);
+    expect(invitationItems[0]?.id).toBe(inviteId);
+    expect(invitationItems[0]?.group).toMatchObject({ id: groupId, name: 'Private Robotics Lab' });
 
     await request(app).get(`/api/v1/groups/${groupId}`)
       .auth(bob.token, { type: 'bearer' })
