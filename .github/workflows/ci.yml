@@ -27,3 +27,33 @@ jobs:
         run: npm run check
       - name: Build
         run: npm run build
+      - name: Build Docker image
+        run: docker build -t king-mongkut-social-api:ci .
+      - name: Smoke test Docker runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker network create kms-ci
+          trap 'docker rm -f kms-api-ci kms-mongo-ci >/dev/null 2>&1 || true; docker network rm kms-ci >/dev/null 2>&1 || true' EXIT
+          docker run -d --name kms-mongo-ci --network kms-ci mongo:8
+          for i in {1..30}; do
+            if docker exec kms-mongo-ci mongosh --quiet --eval "db.adminCommand('ping').ok" | grep -q 1; then break; fi
+            sleep 1
+          done
+          docker run -d --name kms-api-ci --network kms-ci -p 4000:4000 \
+            -e NODE_ENV=test \
+            -e PORT=4000 \
+            -e MONGODB_URI=mongodb://kms-mongo-ci:27017/king_mongkut_social_ci \
+            -e CORS_ORIGINS=http://localhost:5173 \
+            -e FRONTEND_URL=http://localhost:5173 \
+            -e GOOGLE_REDIRECT_URI=http://localhost:4000/api/v1/auth/google/callback \
+            -e ACCESS_TOKEN_SECRET=ci-access-secret-123456789012345678901234567890 \
+            -e REFRESH_TOKEN_SECRET=ci-refresh-secret-12345678901234567890123456789 \
+            -e COOKIE_SECURE=false \
+            king-mongkut-social-api:ci
+          for i in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:4000/health >/dev/null; then break; fi
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:4000/health
+          curl --fail --silent http://127.0.0.1:4000/ready
