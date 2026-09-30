@@ -146,7 +146,14 @@ describe('completed social platform APIs', () => {
     const universitySearch = await request(app).get('/api/v1/search').query({ q: 'KMITL' }).expect(200);
     expect(data<{ universities: Array<{ code: string }> }>(universitySearch).universities)
       .toEqual(expect.arrayContaining([expect.objectContaining({ code: 'KMITL' })]));
+
+    const paginatedGroups = await request(app).get('/api/v1/search').query({ q: 'Quantum', type: 'groups', page: 1, limit: 10 }).expect(200);
+    const groupsData = data<{ items: unknown[]; total: number; page: number; limit: number; pages: number }>(paginatedGroups);
+    expect(groupsData.total).toBe(1);
+    expect(groupsData.page).toBe(1);
+    expect(groupsData.items).toHaveLength(1);
   });
+
 
   it('supports public group membership/posts while keeping private group data member-only', async () => {
     const alice = await member('Alice');
