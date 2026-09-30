@@ -5,7 +5,8 @@ import { UserModel } from '../users/user.model.js';
 import type { Role } from '../users/user.model.js';
 import { PostBookmarkModel } from './post-bookmark.model.js';
 import { PostCommentModel } from './post-comment.model.js';
-import { PostLikeModel } from './post-like.model.js';
+import { PostLikeModel, type PostReaction } from './post-like.model.js';
+import { createNotification } from '../notifications/notification.service.js';
 import { PostModel, type PostAttachment } from './post.model.js';
 import type { CreateCommentInput, CreatePostInput, ListCommentsQuery, ListPostsQuery, UpdatePostInput } from './post.schemas.js';
 
@@ -34,18 +35,29 @@ async function enrichPosts(posts: LeanPost[], viewerId?: string) {
   const ids = posts.map((post) => post._id);
   const viewer = viewerId ? new Types.ObjectId(viewerId) : null;
   const [likes, comments, ownLikes, ownBookmarks] = await Promise.all([
-    PostLikeModel.aggregate<{ _id: Types.ObjectId; count: number }>([
-      { $match: { post: { $in: ids } } }, { $group: { _id: '$post', count: { $sum: 1 } } },
+    PostLikeModel.aggregate<{ _id: { post: Types.ObjectId; reaction: PostReaction }; count: number }>([
+      { $match: { post: { $in: ids } } },
+      { $group: { _id: { post: '$post', reaction: { $ifNull: ['$reaction', 'LIKE'] } }, count: { $sum: 1 } } },
     ]),
     PostCommentModel.aggregate<{ _id: Types.ObjectId; count: number }>([
       { $match: { post: { $in: ids } } }, { $group: { _id: '$post', count: { $sum: 1 } } },
     ]),
-    viewer ? PostLikeModel.find({ post: { $in: ids }, user: viewer }).select('post').lean() : [],
+    viewer ? PostLikeModel.find({ post: { $in: ids }, user: viewer }).select('post reaction').lean() : [],
     viewer ? PostBookmarkModel.find({ post: { $in: ids }, user: viewer }).select('post').lean() : [],
   ]);
-  const likeCounts = new Map(likes.map((item) => [String(item._id), item.count]));
+  const reactionCountsByPost = new Map<string, Record<PostReaction, number>>();
+  for (const item of likes) {
+    const postId = String(item._id.post);
+    const current = reactionCountsByPost.get(postId) ?? { LIKE: 0, LOVE: 0, HAHA: 0, WOW: 0, SAD: 0, ANGRY: 0 };
+    current[item._id.reaction] = item.count;
+    reactionCountsByPost.set(postId, current);
+  }
+  const likeCounts = new Map([...reactionCountsByPost.entries()].map(([id, counts]) => [
+    id, Object.values(counts).reduce((sum, count) => sum + count, 0),
+  ]));
   const commentCounts = new Map(comments.map((item) => [String(item._id), item.count]));
-  const liked = new Set(ownLikes.map((item) => String(item.post)));
+  const ownReaction = new Map(ownLikes.map((item) => [String(item.post), item.reaction ?? 'LIKE']));
+  const liked = new Set(ownReaction.keys());
   const saved = new Set(ownBookmarks.map((item) => String(item.post)));
 
   return posts.map((post) => {
@@ -71,6 +83,8 @@ async function enrichPosts(posts: LeanPost[], viewerId?: string) {
       commentCount,
       commentsCount: commentCount,
       likedByMe: liked.has(id),
+      myReaction: ownReaction.get(id) ?? null,
+      reactionCounts: reactionCountsByPost.get(id) ?? { LIKE: 0, LOVE: 0, HAHA: 0, WOW: 0, SAD: 0, ANGRY: 0 },
       savedByMe: saved.has(id),
     };
   });
@@ -178,6 +192,26 @@ export async function listPublishedByUser(
   return pageResult(await enrichPosts(items as unknown as LeanPost[], viewerId), query.page, query.limit, total);
 }
 
+export async function listPublishedByUniversity(
+  university: 'KMITL' | 'KMUTNB' | 'KMUTT',
+  query: ListPostsQuery,
+  viewerId?: string,
+) {
+  const users = await UserModel.find({ university, isActive: true }).select('_id').lean();
+  const filter: Record<string, unknown> = {
+    user: { $in: users.map((user) => user._id) },
+    status: 'published',
+    ...searchFilter(query),
+  };
+  const skip = (query.page - 1) * query.limit;
+  const [items, total] = await Promise.all([
+    PostModel.find(filter).sort({ publishedAt: -1, createdAt: -1 })
+      .skip(skip).limit(query.limit).populate('user', 'name username avatarUrl university faculty department').lean(),
+    PostModel.countDocuments(filter),
+  ]);
+  return pageResult(await enrichPosts(items as unknown as LeanPost[], viewerId), query.page, query.limit, total);
+}
+
 export async function listMine(userId: string, query: ListPostsQuery) {
   const filter = { user: new Types.ObjectId(userId), ...(query.status ? { status: query.status } : {}), ...searchFilter(query) };
   const skip = (query.page - 1) * query.limit;
@@ -246,18 +280,33 @@ function duplicateKey(error: unknown): boolean {
   return error instanceof Error && 'code' in error && error.code === 11000;
 }
 
-export async function setLike(id: string, userId: string, enabled: boolean, role: Role) {
+export async function setReaction(id: string, userId: string, reaction: PostReaction | null, role: Role) {
   await requirePublished(id);
-  if (enabled) {
+  const before = await PostLikeModel.findOne({ post: id, user: userId }).select('reaction').lean();
+  if (reaction) {
     try {
-      await PostLikeModel.updateOne({ post: id, user: userId }, { $setOnInsert: { post: id, user: userId } }, { upsert: true });
+      await PostLikeModel.updateOne(
+        { post: id, user: userId },
+        { $set: { reaction }, $setOnInsert: { post: id, user: userId } },
+        { upsert: true },
+      );
     } catch (error) {
       if (!duplicateKey(error)) throw error;
     }
   } else {
     await PostLikeModel.deleteOne({ post: id, user: userId });
   }
-  return getPost(id, { userId, role });
+  const post = await getPost(id, { userId, role });
+  const author = post?.author as { _id?: Types.ObjectId } | undefined;
+  const authorId = author?._id ? String(author._id) : '';
+  if (reaction && authorId && authorId !== userId && (!before || before.reaction !== reaction)) {
+    await createNotification({ recipientId: authorId, actorId: userId, type: 'post_reaction', entityId: id, content: reaction });
+  }
+  return post;
+}
+
+export async function setLike(id: string, userId: string, enabled: boolean, role: Role) {
+  return setReaction(id, userId, enabled ? 'LIKE' : null, role);
 }
 
 export async function setBookmark(id: string, userId: string, enabled: boolean, role: Role) {
@@ -299,7 +348,29 @@ export async function addComment(id: string, userId: string, input: CreateCommen
     content: input.content,
     parentId,
   });
-  return PostCommentModel.findById(comment.id).populate('author', 'name username avatarUrl university faculty department').lean();
+  const populated = await PostCommentModel.findById(comment.id)
+    .populate('author', 'name username avatarUrl university faculty department').lean();
+
+  let recipientId = '';
+  let notificationType: 'post_comment' | 'comment_reply' = 'post_comment';
+  if (parentId) {
+    const parent = await PostCommentModel.findById(parentId).select('author').lean();
+    if (parent) recipientId = String(parent.author);
+    notificationType = 'comment_reply';
+  } else {
+    const post = await PostModel.findById(id).select('user').lean();
+    if (post) recipientId = String(post.user);
+  }
+  if (recipientId && recipientId !== userId) {
+    await createNotification({
+      recipientId,
+      actorId: userId,
+      type: notificationType,
+      entityId: id,
+      content: input.content.slice(0, 160),
+    });
+  }
+  return populated;
 }
 
 export async function deleteComment(postId: string, commentId: string, userId: string, role: Role) {

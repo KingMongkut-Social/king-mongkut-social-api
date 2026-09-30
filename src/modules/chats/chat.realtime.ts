@@ -43,3 +43,8 @@ export function emitMessageNew(
     io?.to(`user:${memberId}`).emit('message:new', message);
   }
 }
+
+
+export function emitToUser<T>(userId: string, event: string, payload: T): void {
+  io?.to(`user:${userId}`).emit(event, payload);
+}

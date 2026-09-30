@@ -49,6 +49,15 @@ export async function like(req: Request, res: Response): Promise<void> {
   res.json({ success: true, data: { post } });
 }
 
+export async function reaction(req: Request, res: Response): Promise<void> {
+  if (!req.auth) throw new AppError(401, 'UNAUTHORIZED', 'Authentication required');
+  const value = req.method === 'DELETE'
+    ? null
+    : (req.body as { reaction: 'LIKE' | 'LOVE' | 'HAHA' | 'WOW' | 'SAD' | 'ANGRY' }).reaction;
+  const post = await postService.setReaction(req.params.id as string, req.auth.userId, value, req.auth.role);
+  res.json({ success: true, data: { post } });
+}
+
 export async function bookmark(req: Request, res: Response): Promise<void> {
   if (!req.auth) throw new AppError(401, 'UNAUTHORIZED', 'Authentication required');
   const post = await postService.setBookmark(req.params.id as string, req.auth.userId, req.method === 'PUT', req.auth.role);

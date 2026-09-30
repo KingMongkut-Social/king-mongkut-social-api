@@ -9,7 +9,7 @@ import * as controller from './post.controller.js';
 import { uploadPostAsset, servePostAsset } from './post-upload.js';
 import {
   createCommentSchema, createPostSchema, listCommentsQuerySchema, listPostsQuerySchema,
-  postCommentParamsSchema, postIdParamsSchema, updatePostSchema,
+  postCommentParamsSchema, postIdParamsSchema, reactionSchema, updatePostSchema,
 } from './post.schemas.js';
 
 export const postRouter = Router();
@@ -25,6 +25,8 @@ postRouter.patch('/:id', authenticate, requireCompleteProfile, validate({ params
 postRouter.delete('/:id', authenticate, requireCompleteProfile, validate({ params: postIdParamsSchema }), asyncHandler(controller.remove));
 postRouter.put('/:id/like', authenticate, requireCompleteProfile, validate({ params: postIdParamsSchema }), asyncHandler(controller.like));
 postRouter.delete('/:id/like', authenticate, requireCompleteProfile, validate({ params: postIdParamsSchema }), asyncHandler(controller.like));
+postRouter.put('/:id/reaction', authenticate, requireCompleteProfile, validate({ params: postIdParamsSchema, body: reactionSchema }), asyncHandler(controller.reaction));
+postRouter.delete('/:id/reaction', authenticate, requireCompleteProfile, validate({ params: postIdParamsSchema }), asyncHandler(controller.reaction));
 postRouter.put('/:id/bookmark', authenticate, requireCompleteProfile, validate({ params: postIdParamsSchema }), asyncHandler(controller.bookmark));
 postRouter.delete('/:id/bookmark', authenticate, requireCompleteProfile, validate({ params: postIdParamsSchema }), asyncHandler(controller.bookmark));
 postRouter.get('/:id/comments', optionalAuthenticate, validate({ params: postIdParamsSchema, query: listCommentsQuerySchema }), asyncHandler(controller.comments));
