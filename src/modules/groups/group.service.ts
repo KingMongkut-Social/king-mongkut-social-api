@@ -55,6 +55,18 @@ async function requireReadableGroup(id: string, viewerId?: string) {
   return group;
 }
 
+async function serializeMembershipById(membershipId: Types.ObjectId | string) {
+  const membership = await GroupMemberModel.findById(membershipId)
+    .populate('user', 'name username avatarUrl university faculty department').lean();
+  if (!membership) throw new AppError(404, 'GROUP_MEMBERSHIP_NOT_FOUND', 'Group membership not found');
+  return {
+    id: String(membership._id),
+    role: membership.role,
+    user: membership.user,
+    joinedAt: membership.createdAt,
+  };
+}
+
 async function requireGroupRole(groupId: string, userId: string, allowed: GroupRole[]) {
   const [group, membership] = await Promise.all([
     CommunityGroupModel.findById(groupId).lean(),
@@ -201,7 +213,7 @@ export async function addMember(id: string, actorId: string, targetUserId: strin
       entityId: id,
       content: group.name,
     });
-    return membership;
+    return serializeMembershipById(membership._id);
   } catch (error) {
     if (error instanceof Error && 'code' in error && error.code === 11000) {
       throw new AppError(409, 'GROUP_MEMBER_EXISTS', 'User is already a member of this group');
@@ -220,12 +232,12 @@ export async function updateMemberRole(id: string, actorId: string, targetUserId
   }
 
   if (role === 'owner') {
-    if (targetUserId === actorId) return target;
+    if (targetUserId === actorId) return serializeMembershipById(target._id);
     target.role = 'owner';
     await target.save();
     actorMembership.role = 'admin';
     await actorMembership.save();
-    return target;
+    return serializeMembershipById(target._id);
   }
 
   if (target.role === 'owner') {
@@ -233,7 +245,7 @@ export async function updateMemberRole(id: string, actorId: string, targetUserId
   }
   target.role = role;
   await target.save();
-  return target;
+  return serializeMembershipById(target._id);
 }
 
 export async function removeMember(id: string, actorId: string, targetUserId: string) {
