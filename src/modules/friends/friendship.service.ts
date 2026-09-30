@@ -362,3 +362,27 @@ export async function cancelFriendRequest(requesterId: string, requestId: string
   if (String(existing.requester) !== requesterId) throw new AppError(403, 'FORBIDDEN', 'Cannot cancel this request');
   throw new AppError(409, 'REQUEST_HANDLED', 'Request has already been handled');
 }
+
+
+export async function removeFriend(currentUserId: string, friendshipId: string) {
+  const friendship = await FriendshipModel.findOneAndUpdate(
+    {
+      _id: friendshipId,
+      status: 'accepted',
+      $or: [{ requester: currentUserId }, { recipient: currentUserId }],
+    },
+    { $set: { status: 'rejected' } },
+    { returnDocument: 'after', runValidators: true },
+  );
+  if (friendship) return friendship;
+
+  const existing = await FriendshipModel.findById(friendshipId);
+  if (!existing) throw new AppError(404, 'FRIENDSHIP_NOT_FOUND', 'Friendship not found');
+  if (String(existing.requester) !== currentUserId && String(existing.recipient) !== currentUserId) {
+    throw new AppError(403, 'FORBIDDEN', 'Cannot remove this friendship');
+  }
+  if (existing.status !== 'accepted') {
+    throw new AppError(409, 'NOT_FRIENDS', 'This friendship is not active');
+  }
+  throw new AppError(409, 'FRIENDSHIP_CHANGED', 'Friendship changed before it could be removed');
+}
