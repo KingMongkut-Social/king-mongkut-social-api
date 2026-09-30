@@ -60,3 +60,11 @@ export async function cancelRequest(req: Request, res: Response) {
   emitFriendUpdated(result);
   res.json({ success: true, data: result });
 }
+
+
+export async function removeFriend(req: Request, res: Response) {
+  if (!req.auth) throw new AppError(401, 'UNAUTHORIZED', 'Authentication required');
+  const result = await friendService.removeFriend(req.auth.userId, String(req.params.requestId));
+  emitFriendUpdated(result);
+  res.json({ success: true, data: result });
+}
