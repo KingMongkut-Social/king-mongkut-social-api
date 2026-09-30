@@ -1,10 +1,14 @@
-import type { Server } from 'node:http';
+import { createServer, type Server } from 'node:http';
+import type { Server as SocketServer } from 'socket.io';
 import { createApp } from './app.js';
 import { connectDatabase, disconnectDatabase } from './config/database.js';
 import { env } from './config/env.js';
 import { logger } from './config/logger.js';
+import { attachChatSocket } from './modules/chats/chat.socket.js';
+import { setChatSocketServer } from './modules/chats/chat.realtime.js';
 
 let server: Server | undefined;
+let socketServer: SocketServer | undefined;
 let shuttingDown = false;
 
 async function shutdown(signal: string): Promise<void> {
@@ -18,11 +22,14 @@ async function shutdown(signal: string): Promise<void> {
   }, 10_000);
   forceExit.unref();
 
-  if (server) {
+  if (socketServer) {
+    await new Promise<void>((resolve) => socketServer!.close(() => resolve()));
+  } else if (server) {
     await new Promise<void>((resolve, reject) => {
       server!.close((error) => (error ? reject(error) : resolve()));
     });
   }
+  setChatSocketServer(undefined);
   await disconnectDatabase();
   clearTimeout(forceExit);
 }
@@ -30,7 +37,9 @@ async function shutdown(signal: string): Promise<void> {
 async function bootstrap(): Promise<void> {
   await connectDatabase();
   const app = createApp();
-  server = app.listen(env.PORT, () => {
+  server = createServer(app);
+  socketServer = attachChatSocket(server);
+  server.listen(env.PORT, () => {
     logger.info({ port: env.PORT, env: env.NODE_ENV }, 'API listening');
   });
 }

@@ -102,22 +102,382 @@ paths:
         '401': { description: Google authentication required. }
         '403': { description: Account is inactive. }
         '422': { description: Missing, blank, oversized or unexpected input fields. }
+  /users/me/profile:
+    patch:
+      summary: Edit the current user's public profile fields
+      description: University is read-only and stays tied to the verified university Google email. Image URL fields accept only null to clear; use image upload routes to set them. Existing /auth/profile remains the faculty and department onboarding route.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProfileEditInput' }
+      responses:
+        '200':
+          description: Updated authenticated user.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserResponse' }
+        '401': { description: Authentication required. }
+        '403': { description: Account is inactive. }
+        '409': { description: USERNAME_TAKEN; username is used by another account. }
+        '422': { description: Invalid or unexpected field value. }
+  /users/me/avatar:
+    post:
+      summary: Upload and immediately set the current user's avatar
+      description: JPEG, PNG, GIF, WebP or AVIF up to 5 MiB; checked against file signatures. Shares a limit of 20 profile image uploads per IP per 15 minutes.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        '201':
+          description: Avatar saved and public asset URL returned.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProfileImageResponse' }
+        '401': { description: Authentication required. }
+        '413': { description: Image exceeds 5 MiB. }
+        '415': { description: Unsupported MIME type or invalid image signature. }
+        '429': { description: Upload rate limit exceeded. }
+    delete:
+      summary: Clear current user's avatar
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Avatar URL cleared; old public URL remains accessible.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserResponse' }
+  /users/me/cover:
+    post:
+      summary: Upload and immediately set the current user's cover image
+      description: JPEG, PNG, GIF, WebP or AVIF up to 10 MiB; checked against file signatures. Shares a limit of 20 profile image uploads per IP per 15 minutes.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        '201':
+          description: Cover image saved and public asset URL returned.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProfileImageResponse' }
+        '401': { description: Authentication required. }
+        '413': { description: Image exceeds 10 MiB. }
+        '415': { description: Unsupported MIME type or invalid image signature. }
+        '429': { description: Upload rate limit exceeded. }
+    delete:
+      summary: Clear current user's cover image
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Cover URL cleared; old public URL remains accessible.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/UserResponse' }
+  /users/uploads/{filename}:
+    get:
+      summary: Serve a public profile image
+      description: Old image URLs remain accessible after replacement or clearing. Unused uploads are not yet cleaned up automatically.
+      parameters:
+        - in: path
+          name: filename
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Image bytes. }
+        '404': { description: Image not found. }
+  /users/{userId}/profile:
+    get:
+      summary: Get the public profile of an active user
+      description: An optional bearer token adds viewer relationship and mutual friend information. Missing or inactive users return 404.
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema: { type: string, pattern: '^[a-fA-F0-9]{24}$' }
+      responses:
+        '200':
+          description: Safe user profile; no email or account credentials.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PublicProfileResponse' }
+        '404': { description: USER_NOT_FOUND; user does not exist or is inactive. }
+        '422': { description: Invalid user ID. }
+  /users/{userId}/posts:
+    get:
+      summary: List a user's published posts
+      description: Drafts never appear, even for the owner. Optional bearer authentication populates likedByMe and savedByMe.
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema: { type: string, pattern: '^[a-fA-F0-9]{24}$' }
+        - in: query
+          name: page
+          schema: { type: integer, minimum: 1, default: 1 }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - in: query
+          name: search
+          schema: { type: string, maxLength: 100 }
+        - in: query
+          name: tag
+          schema: { type: string }
+        - in: query
+          name: imagesOnly
+          schema: { type: string, enum: ['1'] }
+          description: Include only posts with an image, cover image, or image attachment; use for the photo tab.
+      responses:
+        '200':
+          description: Paginated published posts from this active user.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PostListResponse' }
+        '404': { description: USER_NOT_FOUND; user does not exist or is inactive. }
+        '422': { description: Invalid user ID or pagination. }
+  /users/{userId}/friends:
+    get:
+      summary: List accepted active friends of an active user
+      description: Public list contains safe user summaries only; it excludes friendship IDs and online status.
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema: { type: string, pattern: '^[a-fA-F0-9]{24}$' }
+        - in: query
+          name: page
+          schema: { type: integer, minimum: 1, default: 1 }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        '200':
+          description: Paginated safe user summaries, sorted by name.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PublicFriendListResponse' }
+        '404': { description: USER_NOT_FOUND; user does not exist or is inactive. }
+        '422': { description: Invalid user ID or pagination. }
+  /friends:
+    get:
+      summary: List your accepted active friends
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Public user summaries with shared friend counts and online snapshots.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AcceptedFriendListResponse' }
+  /friends/requests:
+    get:
+      summary: List your incoming and outgoing pending friend requests
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Pending requests in incoming and outgoing arrays.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FriendRequestListResponse' }
+  /friends/suggestions:
+    get:
+      summary: Find active users you may know
+      description: Excludes current friends and pending requests; orders shared friends first, then fills by name.
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 50, default: 20 }
+      responses:
+        '200':
+          description: Public connection summaries; all have relationshipStatus none.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FriendConnectionListResponse' }
+        '422': { description: Invalid limit. }
+  /friends/search:
+    get:
+      summary: Search active users and view relationship state
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: q
+          schema: { type: string, maxLength: 80 }
+        - in: query
+          name: university
+          schema: { type: string, enum: [KMITL, KMUTNB, KMUTT] }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 50, default: 20 }
+      responses:
+        '200':
+          description: Matching public connection summaries.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FriendConnectionListResponse' }
+  /friends/users/{userId}:
+    get:
+      summary: Get an active user's connection state
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema: { type: string, pattern: '^[a-fA-F0-9]{24}$' }
+      responses:
+        '200':
+          description: Public connection summary.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FriendConnectionResponse' }
+        '404': { description: User does not exist or is inactive. }
+  /friends/request:
+    post:
+      summary: Send a friend request
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [targetUserId]
+              properties:
+                targetUserId: { type: string, pattern: '^[a-fA-F0-9]{24}$' }
+      responses:
+        '201': { description: Pending friendship created. }
+        '409': { description: Already friends or a request is pending. }
+  /friends/respond:
+    post:
+      summary: Accept or reject a received pending friend request
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [requestId, action]
+              properties:
+                requestId: { type: string, pattern: '^[a-fA-F0-9]{24}$' }
+                action: { type: string, enum: [accept, reject] }
+      responses:
+        '200': { description: Friendship state updated. }
+        '403': { description: Only the recipient can respond. }
+        '409': { description: Request was already handled. }
+  /friends/requests/{requestId}:
+    delete:
+      summary: Cancel an outgoing pending friend request
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: requestId
+          required: true
+          schema: { type: string, pattern: '^[a-fA-F0-9]{24}$' }
+      responses:
+        '200': { description: Request marked rejected; it can be sent again later. }
+        '403': { description: Only the sender can cancel. }
+        '409': { description: Request was already handled. }
   /posts:
     get:
       summary: List published posts
+      description: Optional bearer authentication populates likedByMe and savedByMe.
       responses:
-        '200': { description: Published posts }
+        '200':
+          description: Paginated published posts
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PostListResponse' }
     post:
       summary: Create post
       security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PostInput' }
       responses:
-        '201': { description: Created }
+        '201':
+          description: Created; title derives from content or media if omitted.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PostResponse' }
   /posts/mine:
     get:
       summary: List current user's posts
       security: [{ bearerAuth: [] }]
       responses:
-        '200': { description: User posts }
+        '200':
+          description: User posts
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PostListResponse' }
+  /posts/bookmarks:
+    get:
+      summary: List current user's saved published posts
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Paginated saved posts
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PostListResponse' }
+  /posts/uploads:
+    post:
+      summary: Upload one post image or attachment
+      description: JPEG, PNG, GIF, WebP, AVIF, PDF, TXT, DOC and DOCX up to 10 MiB. Limited to 30 uploads per IP per 15 minutes.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        '201':
+          description: Uploaded public asset
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { const: true }
+                  data:
+                    type: object
+                    properties:
+                      asset: { $ref: '#/components/schemas/PostAttachment' }
+        '413': { description: File is too large. }
+        '415': { description: Unsupported MIME type or mismatched file signature. }
+        '429': { description: Upload rate limit exceeded. }
+  /posts/uploads/{filename}:
+    get:
+      summary: Serve a public uploaded asset
+      description: Public URLs remain accessible to holders after a post becomes a draft or is deleted. Unattached uploads are not automatically cleaned up.
+      parameters:
+        - in: path
+          name: filename
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: File contents; non-image files download as attachments. }
+        '404': { description: Asset not found. }
   /posts/{id}:
     get:
       summary: Get a published post (or own private post if authenticated)
@@ -127,17 +487,30 @@ paths:
           required: true
           schema: { type: string }
       responses:
-        '200': { description: Post }
+        '200':
+          description: Post
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PostResponse' }
     patch:
       summary: Update own post (admin may update any)
       security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PostInput' }
       parameters:
         - in: path
           name: id
           required: true
           schema: { type: string }
       responses:
-        '200': { description: Updated }
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PostResponse' }
     delete:
       summary: Delete own post (admin may delete any)
       security: [{ bearerAuth: [] }]
@@ -146,6 +519,86 @@ paths:
           name: id
           required: true
           schema: { type: string }
+      responses:
+        '204': { description: Deleted }
+  /posts/{id}/like:
+    put:
+      summary: Like a published post (idempotent)
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Updated post and like count
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PostResponse' }
+    delete:
+      summary: Remove a like (idempotent)
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Updated post and like count
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PostResponse' }
+  /posts/{id}/bookmark:
+    put:
+      summary: Save a published post (idempotent)
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Updated post with savedByMe
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PostResponse' }
+    delete:
+      summary: Remove a saved post (idempotent)
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: Updated post with savedByMe
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PostResponse' }
+  /posts/{id}/comments:
+    get:
+      summary: List flat comments oldest first
+      responses:
+        '200':
+          description: Paginated comments
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PostCommentListResponse' }
+    post:
+      summary: Comment on a published post
+      description: Replies to a reply attach to its root comment.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content: { type: string, minLength: 1, maxLength: 2000 }
+                parentId: { type: string, nullable: true }
+      responses:
+        '201':
+          description: Created comment
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { const: true }
+                  data:
+                    type: object
+                    properties:
+                      comment: { $ref: '#/components/schemas/PostComment' }
+  /posts/{id}/comments/{commentId}:
+    delete:
+      summary: Delete a comment as its author, the post author, or admin
+      security: [{ bearerAuth: [] }]
       responses:
         '204': { description: Deleted }
 components:
@@ -159,12 +612,256 @@ components:
       in: cookie
       name: refresh_token
   schemas:
+    PublicFriend:
+      type: object
+      required: [id, name, university]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        username: { type: [string, 'null'] }
+        avatarUrl: { type: [string, 'null'] }
+        university: { type: string, enum: [KMITL, KMUTNB, KMUTT] }
+        faculty: { type: string }
+        department: { type: string }
+    FriendConnection:
+      allOf:
+        - { $ref: '#/components/schemas/PublicFriend' }
+        - type: object
+          required: [relationshipStatus, requestId, mutualFriendCount]
+          properties:
+            relationshipStatus: { type: string, enum: [none, friends, pending_sent, pending_received] }
+            requestId: { type: [string, 'null'] }
+            mutualFriendCount: { type: integer, minimum: 0 }
+    AcceptedFriend:
+      allOf:
+        - { $ref: '#/components/schemas/PublicFriend' }
+        - type: object
+          required: [friendshipId, isOnline, mutualFriendCount]
+          properties:
+            friendshipId: { type: string }
+            isOnline: { type: boolean }
+            mutualFriendCount: { type: integer, minimum: 0 }
+    FriendConnectionResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success: { const: true }
+        data: { $ref: '#/components/schemas/FriendConnection' }
+    FriendConnectionListResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success: { const: true }
+        data: { type: array, items: { $ref: '#/components/schemas/FriendConnection' } }
+    AcceptedFriendListResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success: { const: true }
+        data: { type: array, items: { $ref: '#/components/schemas/AcceptedFriend' } }
+    FriendRequest:
+      type: object
+      required: [id, requester, recipient, createdAt]
+      properties:
+        id: { type: string }
+        requester: { $ref: '#/components/schemas/PublicFriend' }
+        recipient: { $ref: '#/components/schemas/PublicFriend' }
+        createdAt: { type: string, format: date-time }
+    FriendRequestListResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success: { const: true }
+        data:
+          type: object
+          required: [incoming, outgoing]
+          properties:
+            incoming: { type: array, items: { $ref: '#/components/schemas/FriendRequest' } }
+            outgoing: { type: array, items: { $ref: '#/components/schemas/FriendRequest' } }
+    PublicProfile:
+      allOf:
+        - { $ref: '#/components/schemas/PublicFriend' }
+        - type: object
+          required: [username, bio, academicYear, avatarUrl, coverUrl, friendCount, mutualFriendCount, relationshipStatus, requestId]
+          properties:
+            username: { type: [string, 'null'] }
+            bio: { type: string }
+            academicYear: { type: [integer, 'null'], minimum: 1, maximum: 8 }
+            avatarUrl: { type: [string, 'null'] }
+            coverUrl: { type: [string, 'null'] }
+            friendCount: { type: integer, minimum: 0, description: Accepted active friends. }
+            mutualFriendCount: { type: integer, minimum: 0, description: Zero for guests and self. }
+            relationshipStatus: { type: string, enum: [self, none, friends, pending_sent, pending_received] }
+            requestId: { type: [string, 'null'] }
+    PublicProfileResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success: { const: true }
+        data:
+          type: object
+          required: [profile]
+          properties:
+            profile: { $ref: '#/components/schemas/PublicProfile' }
+    PublicFriendListResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success: { const: true }
+        data:
+          type: object
+          required: [items, page, limit, total, pages]
+          properties:
+            items: { type: array, items: { $ref: '#/components/schemas/PublicFriend' } }
+            page: { type: integer }
+            limit: { type: integer }
+            total: { type: integer }
+            pages: { type: integer }
+    PostAttachment:
+      type: object
+      required: [url, name, mimeType, size]
+      properties:
+        url: { type: string, description: Absolute path under /api/v1/posts/uploads/ or an HTTP(S) URL. }
+        name: { type: string }
+        mimeType: { type: string }
+        size: { type: integer, minimum: 0 }
+    PostInput:
+      type: object
+      description: Creation requires content or media; updates require at least one field and the resulting post must retain content or media. Tagged users must be active accepted friends.
+      properties:
+        title: { type: string, maxLength: 150 }
+        content: { type: string, maxLength: 20000 }
+        status: { type: string, enum: [draft, published], default: published }
+        coverImage: { type: [string, 'null'] }
+        tags: { type: array, maxItems: 20, items: { type: string } }
+        images: { type: array, maxItems: 10, items: { type: string } }
+        attachments: { type: array, maxItems: 10, items: { $ref: '#/components/schemas/PostAttachment' } }
+        feeling: { type: [string, 'null'], maxLength: 100 }
+        taggedFriends: { type: array, maxItems: 20, items: { type: string } }
+    PostAuthor:
+      type: object
+      required: [_id, name, university]
+      properties:
+        _id: { type: string }
+        name: { type: string }
+        username: { type: [string, 'null'] }
+        avatarUrl: { type: [string, 'null'] }
+        university: { type: string, enum: [KMITL, KMUTNB, KMUTT] }
+        faculty: { type: string }
+        department: { type: string }
+    Post:
+      type: object
+      required: [_id, title, content, status, user, author, images, attachments, taggedFriends, likeCount, commentCount, likedByMe, savedByMe, createdAt, updatedAt]
+      properties:
+        _id: { type: string }
+        title: { type: string }
+        content: { type: string }
+        status: { type: string, enum: [draft, published] }
+        user: { $ref: '#/components/schemas/PostAuthor' }
+        author: { $ref: '#/components/schemas/PostAuthor' }
+        coverImage: { type: [string, 'null'] }
+        tags: { type: array, items: { type: string } }
+        images: { type: array, items: { type: string } }
+        attachments: { type: array, items: { $ref: '#/components/schemas/PostAttachment' } }
+        feeling: { type: [string, 'null'] }
+        taggedFriends: { type: array, items: { type: string } }
+        likeCount: { type: integer }
+        commentCount: { type: integer }
+        likedByMe: { type: boolean }
+        savedByMe: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    PostComment:
+      type: object
+      required: [_id, post, author, content, parentId, createdAt, updatedAt]
+      properties:
+        _id: { type: string }
+        post: { type: string }
+        author: { $ref: '#/components/schemas/PostAuthor' }
+        content: { type: string }
+        parentId: { type: [string, 'null'] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    PostResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success: { const: true }
+        data:
+          type: object
+          required: [post]
+          properties:
+            post: { $ref: '#/components/schemas/Post' }
+    PostListResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success: { const: true }
+        data:
+          type: object
+          required: [items, page, limit, total, pages]
+          properties:
+            items: { type: array, items: { $ref: '#/components/schemas/Post' } }
+            page: { type: integer }
+            limit: { type: integer }
+            total: { type: integer }
+            pages: { type: integer }
+    PostCommentListResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success: { const: true }
+        data:
+          type: object
+          required: [items, page, limit, total, pages]
+          properties:
+            items: { type: array, items: { $ref: '#/components/schemas/PostComment' } }
+            page: { type: integer }
+            limit: { type: integer }
+            total: { type: integer }
+            pages: { type: integer }
+    ProfileEditInput:
+      type: object
+      description: At least one field is required. Upload routes must be used to set image URLs; string image URLs are rejected.
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 2, maxLength: 80 }
+        username: { type: [string, 'null'], pattern: '^[a-zA-Z0-9_][a-zA-Z0-9._]{1,28}[a-zA-Z0-9_]$' }
+        bio: { type: string, maxLength: 500 }
+        faculty: { type: string, minLength: 1, maxLength: 150 }
+        department: { type: string, minLength: 1, maxLength: 150 }
+        academicYear: { type: [integer, 'null'], minimum: 1, maximum: 8 }
+        avatarUrl: { type: 'null' }
+        coverUrl: { type: 'null' }
+    ProfileImageResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success: { const: true }
+        data:
+          type: object
+          required: [user, asset]
+          properties:
+            user: { $ref: '#/components/schemas/User' }
+            asset:
+              type: object
+              required: [url, mimeType, size]
+              properties:
+                url: { type: string, description: Public absolute path under /api/v1/users/uploads/. }
+                mimeType: { type: string, enum: [image/jpeg, image/png, image/gif, image/webp, image/avif] }
+                size: { type: integer, minimum: 1 }
     User:
       type: object
       required: [_id, name, email, university, role, needsProfileCompletion, createdAt, updatedAt]
       properties:
         _id: { type: string }
         name: { type: string }
+        username: { type: [string, 'null'] }
+        bio: { type: string }
+        academicYear: { type: [integer, 'null'], minimum: 1, maximum: 8 }
+        avatarUrl: { type: [string, 'null'] }
+        coverUrl: { type: [string, 'null'] }
         email: { type: string, format: email }
         university: { type: string, enum: [KMITL, KMUTNB, KMUTT] }
         role: { type: string, enum: [user, admin] }

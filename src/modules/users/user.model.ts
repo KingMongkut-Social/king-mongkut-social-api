@@ -5,6 +5,11 @@ export type University = 'KMITL' | 'KMUTNB' | 'KMUTT';
 
 export interface User {
   name: string;
+  username?: string | null;
+  bio: string;
+  academicYear?: number | null;
+  avatarUrl?: string | null;
+  coverUrl?: string | null;
   email: string;
   passwordHash?: string;
   googleSub?: string;
@@ -27,6 +32,19 @@ const userSchema = new Schema<User>(
       minlength: 2,
       maxlength: 80,
     },
+    username: {
+      type: String,
+      lowercase: true,
+      trim: true,
+      minlength: 3,
+      maxlength: 30,
+      match: /^[a-z0-9_][a-z0-9._]{1,28}[a-z0-9_]$/,
+      default: null,
+    },
+    bio: { type: String, trim: true, maxlength: 500, default: '' },
+    academicYear: { type: Number, min: 1, max: 8, default: null },
+    avatarUrl: { type: String, default: null },
+    coverUrl: { type: String, default: null },
     email: {
       type: String,
       required: true,
@@ -81,6 +99,7 @@ const userSchema = new Schema<User>(
 );
 
 userSchema.index({ googleSub: 1 }, { unique: true, partialFilterExpression: { googleSub: { $type: 'string' } } });
+userSchema.index({ username: 1 }, { unique: true, partialFilterExpression: { username: { $type: 'string' } } });
 
 export function hasCompleteProfile(user: { faculty?: string | null; department?: string | null }): boolean {
   return Boolean(user.faculty?.trim() && user.department?.trim());

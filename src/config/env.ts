@@ -20,6 +20,7 @@ const envSchema = z.object({
   COOKIE_SAME_SITE: z.enum(['lax', 'strict', 'none']).default('lax'),
   TRUST_PROXY: z.coerce.number().int().min(0).default(0),
   LOG_LEVEL: z.string().default('info'),
+  UPLOAD_DIR: z.string().trim().min(1).default('uploads'),
 }).superRefine((value, ctx) => {
   const frontend = new URL(value.FRONTEND_URL);
   const callback = new URL(value.GOOGLE_REDIRECT_URI);

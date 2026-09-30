@@ -29,3 +29,6 @@ export const authRateLimit = rateLimit({
 
 // Count redirects too, otherwise starting OAuth could create unlimited transactions.
 export const googleAuthRateLimit = rateLimit({ ...common, windowMs: 15 * 60 * 1000, limit: 40 });
+
+export const postUploadRateLimit = rateLimit({ ...common, windowMs: 15 * 60 * 1000, limit: 30 });
+export const profileUploadRateLimit = rateLimit({ ...common, windowMs: 15 * 60 * 1000, limit: 20 });

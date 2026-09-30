@@ -13,6 +13,7 @@ const AUDIENCE = 'king-mongkut-social-app';
 interface AccessClaims {
   sub: string;
   role: Role;
+  exp: number;
 }
 
 interface RefreshClaims {
@@ -61,10 +62,11 @@ export async function verifyAccessToken(token: string): Promise<AccessClaims> {
       typeof payload.sub !== 'string' || !/^[a-f\d]{24}$/i.test(payload.sub) || payload.authVersion !== 2
       || payload.tokenType !== 'access'
       || (payload.role !== 'user' && payload.role !== 'admin')
+      || typeof payload.exp !== 'number'
     ) {
       throw new AppError(401, 'INVALID_TOKEN', 'Invalid access token');
     }
-    return { sub: payload.sub, role: payload.role };
+    return { sub: payload.sub, role: payload.role, exp: payload.exp };
   } catch (error) {
     if (error instanceof AppError) throw error;
     if (error instanceof joseErrors.JOSEError) {

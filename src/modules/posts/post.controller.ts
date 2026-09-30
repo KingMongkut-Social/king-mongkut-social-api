@@ -1,6 +1,6 @@
 import type { Request, Response } from 'express';
 import { AppError } from '../../common/errors/app-error.js';
-import type { CreatePostInput, ListPostsQuery, UpdatePostInput } from './post.schemas.js';
+import type { CreateCommentInput, CreatePostInput, ListCommentsQuery, ListPostsQuery, UpdatePostInput } from './post.schemas.js';
 import * as postService from './post.service.js';
 
 export async function create(req: Request, res: Response): Promise<void> {
@@ -10,7 +10,13 @@ export async function create(req: Request, res: Response): Promise<void> {
 }
 
 export async function list(req: Request, res: Response): Promise<void> {
-  const result = await postService.listPublished(req.query as unknown as ListPostsQuery);
+  const result = await postService.listPublished(req.query as unknown as ListPostsQuery, req.auth?.userId);
+  res.json({ success: true, data: result });
+}
+
+export async function bookmarks(req: Request, res: Response): Promise<void> {
+  if (!req.auth) throw new AppError(401, 'UNAUTHORIZED', 'Authentication required');
+  const result = await postService.listBookmarks(req.auth.userId, req.query as unknown as ListPostsQuery);
   res.json({ success: true, data: result });
 }
 
@@ -34,5 +40,34 @@ export async function update(req: Request, res: Response): Promise<void> {
 export async function remove(req: Request, res: Response): Promise<void> {
   if (!req.auth) throw new AppError(401, 'UNAUTHORIZED', 'Authentication required');
   await postService.deletePost(req.params.id as string, req.auth.userId, req.auth.role);
+  res.status(204).send();
+}
+
+export async function like(req: Request, res: Response): Promise<void> {
+  if (!req.auth) throw new AppError(401, 'UNAUTHORIZED', 'Authentication required');
+  const post = await postService.setLike(req.params.id as string, req.auth.userId, req.method === 'PUT', req.auth.role);
+  res.json({ success: true, data: { post } });
+}
+
+export async function bookmark(req: Request, res: Response): Promise<void> {
+  if (!req.auth) throw new AppError(401, 'UNAUTHORIZED', 'Authentication required');
+  const post = await postService.setBookmark(req.params.id as string, req.auth.userId, req.method === 'PUT', req.auth.role);
+  res.json({ success: true, data: { post } });
+}
+
+export async function comments(req: Request, res: Response): Promise<void> {
+  const result = await postService.listComments(req.params.id as string, req.query as unknown as ListCommentsQuery, req.auth);
+  res.json({ success: true, data: result });
+}
+
+export async function comment(req: Request, res: Response): Promise<void> {
+  if (!req.auth) throw new AppError(401, 'UNAUTHORIZED', 'Authentication required');
+  const result = await postService.addComment(req.params.id as string, req.auth.userId, req.body as CreateCommentInput);
+  res.status(201).json({ success: true, data: { comment: result } });
+}
+
+export async function removeComment(req: Request, res: Response): Promise<void> {
+  if (!req.auth) throw new AppError(401, 'UNAUTHORIZED', 'Authentication required');
+  await postService.deleteComment(req.params.id as string, req.params.commentId as string, req.auth.userId, req.auth.role);
   res.status(204).send();
 }

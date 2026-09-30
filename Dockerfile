@@ -14,6 +14,7 @@ FROM node:24-alpine AS runner
 ENV NODE_ENV=production
 WORKDIR /app
 RUN addgroup -S nodejs && adduser -S app -G nodejs
+RUN mkdir -p /app/uploads && chown app:nodejs /app/uploads
 COPY --from=build --chown=app:nodejs /app/package*.json ./
 COPY --from=build --chown=app:nodejs /app/node_modules ./node_modules
 COPY --from=build --chown=app:nodejs /app/dist ./dist
