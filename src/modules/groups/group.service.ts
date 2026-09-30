@@ -1,6 +1,8 @@
 import { AppError } from '../../common/errors/app-error.js';
 import { createNotification } from '../notifications/notification.service.js';
+import { UserModel } from '../users/user.model.js';
 import { CommunityGroupModel } from './group.model.js';
+import { GroupInviteModel } from './group-invite.model.js';
 import { GroupMemberModel } from './group-member.model.js';
 import { GroupPostModel } from './group-post.model.js';
 
@@ -193,4 +195,155 @@ export async function createPost(id: string, userId: string, content: string) {
   const post = await GroupPostModel.create({ group: id, author: userId, content });
   return GroupPostModel.findById(post._id)
     .populate('author', 'name username avatarUrl university').lean();
+}
+
+
+export async function listMyGroups(userId: string, page: number, limit: number) {
+  const [memberships, total] = await Promise.all([
+    GroupMemberModel.find({ user: userId }).sort({ createdAt: -1, _id: -1 })
+      .skip((page - 1) * limit).limit(limit).select('group').lean(),
+    GroupMemberModel.countDocuments({ user: userId }),
+  ]);
+  const groupIds = memberships.map((membership) => membership.group);
+  const groups = await CommunityGroupModel.find({ _id: { $in: groupIds } })
+    .populate('creator', 'name username avatarUrl university').lean();
+  const byId = new Map(groups.map((group) => [String(group._id), group]));
+  const ordered = memberships.flatMap((membership) => {
+    const group = byId.get(String(membership.group));
+    return group ? [group] : [];
+  });
+  return {
+    items: await Promise.all(ordered.map((group) => serializeGroup(group as unknown as GroupView, userId))),
+    page,
+    limit,
+    total,
+    pages: Math.ceil(total / limit),
+  };
+}
+
+export async function listInvitations(userId: string) {
+  const invitations = await GroupInviteModel.find({ user: userId, status: 'pending' })
+    .sort({ createdAt: -1 })
+    .populate('group', 'name description coverUrl privacy university creator createdAt')
+    .populate('invitedBy', 'name username avatarUrl university')
+    .lean();
+
+  return invitations.flatMap((invitation) => {
+    const group = invitation.group && typeof invitation.group === 'object'
+      ? invitation.group as unknown as GroupView
+      : null;
+    if (!group) return [];
+    return [{
+      id: String(invitation._id),
+      group: {
+        id: String(group._id),
+        name: group.name,
+        description: group.description,
+        coverUrl: group.coverUrl ?? null,
+        privacy: group.privacy,
+        university: group.university ?? null,
+      },
+      invitedBy: invitation.invitedBy,
+      createdAt: invitation.createdAt,
+    }];
+  });
+}
+
+export async function inviteMember(groupId: string, inviterId: string, targetUserId: string) {
+  if (inviterId === targetUserId) throw new AppError(400, 'BAD_REQUEST', 'Cannot invite yourself');
+
+  const group = await CommunityGroupModel.findById(groupId).lean();
+  if (!group) throw new AppError(404, 'GROUP_NOT_FOUND', 'Group not found');
+  if (group.privacy !== 'private') {
+    throw new AppError(409, 'GROUP_INVITE_NOT_REQUIRED', 'Public groups do not require invitations');
+  }
+
+  const [inviterMembership, targetExists, existingMember, existingInvite] = await Promise.all([
+    GroupMemberModel.findOne({ group: groupId, user: inviterId }).select('role').lean(),
+    UserModel.exists({ _id: targetUserId, isActive: true }),
+    GroupMemberModel.exists({ group: groupId, user: targetUserId }),
+    GroupInviteModel.findOne({ group: groupId, user: targetUserId }),
+  ]);
+
+  if (!inviterMembership || !['owner', 'admin'].includes(inviterMembership.role)) {
+    throw new AppError(403, 'GROUP_INVITE_FORBIDDEN', 'Only group owners and admins can invite members');
+  }
+  if (!targetExists) throw new AppError(404, 'USER_NOT_FOUND', 'Target user not found');
+  if (existingMember) throw new AppError(409, 'GROUP_ALREADY_MEMBER', 'User is already a member');
+  if (existingInvite?.status === 'pending') {
+    throw new AppError(409, 'GROUP_INVITE_PENDING', 'An invitation is already pending');
+  }
+
+  const invitation = existingInvite
+    ? await GroupInviteModel.findOneAndUpdate(
+      { _id: existingInvite._id },
+      { $set: { invitedBy: inviterId, status: 'pending' } },
+      { returnDocument: 'after', runValidators: true },
+    )
+    : await GroupInviteModel.create({
+      group: groupId,
+      user: targetUserId,
+      invitedBy: inviterId,
+      status: 'pending',
+    });
+
+  if (!invitation) throw new AppError(500, 'GROUP_INVITE_FAILED', 'Could not create group invitation');
+
+  await createNotification({
+    recipientId: targetUserId,
+    actorId: inviterId,
+    type: 'group_invite',
+    entityId: groupId,
+    content: group.name,
+  });
+
+  return {
+    id: String(invitation._id),
+    groupId,
+    userId: targetUserId,
+    status: invitation.status,
+    createdAt: invitation.createdAt,
+  };
+}
+
+export async function respondInvitation(
+  inviteId: string,
+  userId: string,
+  action: 'accept' | 'reject',
+) {
+  const invitation = await GroupInviteModel.findOneAndUpdate(
+    { _id: inviteId, user: userId, status: 'pending' },
+    { $set: { status: action === 'accept' ? 'accepted' : 'rejected' } },
+    { returnDocument: 'after', runValidators: true },
+  );
+  if (!invitation) {
+    const existing = await GroupInviteModel.findById(inviteId);
+    if (!existing) throw new AppError(404, 'GROUP_INVITE_NOT_FOUND', 'Group invitation not found');
+    if (String(existing.user) !== userId) throw new AppError(403, 'FORBIDDEN', 'Cannot respond to this invitation');
+    throw new AppError(409, 'GROUP_INVITE_HANDLED', 'Group invitation has already been handled');
+  }
+
+  if (action === 'accept') {
+    await GroupMemberModel.updateOne(
+      { group: invitation.group, user: userId },
+      { $setOnInsert: { group: invitation.group, user: userId, role: 'member' } },
+      { upsert: true },
+    );
+    const group = await CommunityGroupModel.findById(invitation.group).lean();
+    if (!group) throw new AppError(404, 'GROUP_NOT_FOUND', 'Group no longer exists');
+    if (String(group.creator) !== userId) {
+      await createNotification({
+        recipientId: String(group.creator),
+        actorId: userId,
+        type: 'group_join',
+        entityId: String(group._id),
+      });
+    }
+  }
+
+  return {
+    id: String(invitation._id),
+    groupId: String(invitation.group),
+    status: invitation.status,
+  };
 }

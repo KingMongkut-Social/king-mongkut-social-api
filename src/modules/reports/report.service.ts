@@ -1,10 +1,12 @@
 import { Types } from 'mongoose';
 import { AppError } from '../../common/errors/app-error.js';
 import { CommunityGroupModel } from '../groups/group.model.js';
+import { GroupInviteModel } from '../groups/group-invite.model.js';
 import { GroupMemberModel } from '../groups/group-member.model.js';
 import { GroupPostModel } from '../groups/group-post.model.js';
 import { PostCommentModel } from '../posts/post-comment.model.js';
 import { PostModel } from '../posts/post.model.js';
+import * as postService from '../posts/post.service.js';
 import { UserModel } from '../users/user.model.js';
 import { ReportModel, type ReportReason } from './report.model.js';
 
@@ -20,6 +22,16 @@ export async function createReport(
   if (input.targetType === 'user' && input.targetId === reporterId) {
     throw new AppError(400, 'BAD_REQUEST', 'Cannot report yourself');
   }
+
+  const targetExists = input.targetType === 'user'
+    ? await UserModel.exists({ _id: input.targetId, isActive: true })
+    : input.targetType === 'post'
+      ? await PostModel.exists({ _id: input.targetId, status: 'published' })
+      : input.targetType === 'comment'
+        ? await PostCommentModel.exists({ _id: input.targetId })
+        : await CommunityGroupModel.exists({ _id: input.targetId });
+
+  if (!targetExists) throw new AppError(404, 'REPORT_TARGET_NOT_FOUND', 'Report target not found');
   return ReportModel.create({ ...input, reporter: reporterId });
 }
 
@@ -51,24 +63,32 @@ export async function moderate(
   }
 
   if (action === 'remove_content') {
-    if (report.targetType === 'post') await PostModel.deleteOne({ _id: report.targetId });
-    else if (report.targetType === 'comment') await PostCommentModel.deleteOne({ _id: report.targetId });
-    else if (report.targetType === 'group') {
+    if (report.targetType === 'post') {
+      await postService.deletePost(report.targetId, moderatorId, 'admin');
+    } else if (report.targetType === 'comment') {
+      const comment = await PostCommentModel.findById(report.targetId).select('post').lean();
+      if (!comment) throw new AppError(404, 'REPORT_TARGET_NOT_FOUND', 'Reported comment no longer exists');
+      await postService.deleteComment(String(comment.post), report.targetId, moderatorId, 'admin');
+    } else if (report.targetType === 'group') {
+      const removed = await CommunityGroupModel.deleteOne({ _id: report.targetId });
+      if (!removed.deletedCount) throw new AppError(404, 'REPORT_TARGET_NOT_FOUND', 'Reported group no longer exists');
       await Promise.all([
-        CommunityGroupModel.deleteOne({ _id: report.targetId }),
         GroupMemberModel.deleteMany({ group: report.targetId }),
+        GroupInviteModel.deleteMany({ group: report.targetId }),
         GroupPostModel.deleteMany({ group: report.targetId }),
       ]);
+    } else {
+      throw new AppError(422, 'INVALID_MODERATION_ACTION', 'Cannot remove this target as content');
     }
-    else throw new AppError(422, 'INVALID_MODERATION_ACTION', 'Cannot remove this target as content');
   } else if (action === 'suspend_user' || action === 'restore_user') {
     if (report.targetType !== 'user') {
       throw new AppError(422, 'INVALID_MODERATION_ACTION', 'This action requires a user report');
     }
-    await UserModel.updateOne(
+    const updated = await UserModel.updateOne(
       { _id: report.targetId },
       { $set: { isActive: action === 'restore_user' } },
     );
+    if (!updated.matchedCount) throw new AppError(404, 'REPORT_TARGET_NOT_FOUND', 'Reported user no longer exists');
   }
 
   report.status = action === 'dismiss' ? 'dismissed' : 'resolved';

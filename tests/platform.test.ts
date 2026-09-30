@@ -5,10 +5,13 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.js';
 import { signAccessToken } from '../src/modules/auth/token.service.js';
 import { CommunityGroupModel } from '../src/modules/groups/group.model.js';
+import { GroupInviteModel } from '../src/modules/groups/group-invite.model.js';
 import { GroupMemberModel } from '../src/modules/groups/group-member.model.js';
 import { GroupPostModel } from '../src/modules/groups/group-post.model.js';
 import { NotificationModel } from '../src/modules/notifications/notification.model.js';
 import { PostLikeModel } from '../src/modules/posts/post-like.model.js';
+import { PostBookmarkModel } from '../src/modules/posts/post-bookmark.model.js';
+import { PostCommentModel } from '../src/modules/posts/post-comment.model.js';
 import { PostModel } from '../src/modules/posts/post.model.js';
 import { ReportModel } from '../src/modules/reports/report.model.js';
 import { UserModel } from '../src/modules/users/user.model.js';
@@ -46,6 +49,7 @@ beforeAll(async () => {
     NotificationModel.syncIndexes(),
     CommunityGroupModel.syncIndexes(),
     GroupMemberModel.syncIndexes(),
+    GroupInviteModel.syncIndexes(),
     GroupPostModel.syncIndexes(),
     ReportModel.syncIndexes(),
   ]);
@@ -56,9 +60,12 @@ beforeEach(async () => {
     UserModel.deleteMany({}),
     PostModel.deleteMany({}),
     PostLikeModel.deleteMany({}),
+    PostBookmarkModel.deleteMany({}),
+    PostCommentModel.deleteMany({}),
     NotificationModel.deleteMany({}),
     CommunityGroupModel.deleteMany({}),
     GroupMemberModel.deleteMany({}),
+    GroupInviteModel.deleteMany({}),
     GroupPostModel.deleteMany({}),
     ReportModel.deleteMany({}),
   ]);
@@ -178,6 +185,101 @@ describe('completed social platform APIs', () => {
     await request(app).get(`/api/v1/groups/${privateId}/posts`)
       .auth(alice.token, { type: 'bearer' })
       .expect(200);
+  });
+
+
+  it('supports private group invitations and exposes joined community groups', async () => {
+    const alice = await member('Alice');
+    const bob = await member('Bob');
+    const eve = await member('Eve');
+
+    const created = await request(app).post('/api/v1/groups')
+      .auth(alice.token, { type: 'bearer' })
+      .send({ name: 'Private Robotics Lab', description: 'Invite only', privacy: 'private', university: 'KMITL' })
+      .expect(201);
+    const groupId = data<{ group: { id: string } }>(created).group.id;
+
+    await request(app).post(`/api/v1/groups/${groupId}/invites`)
+      .auth(eve.token, { type: 'bearer' })
+      .send({ userId: bob.user.id })
+      .expect(403);
+
+    const invited = await request(app).post(`/api/v1/groups/${groupId}/invites`)
+      .auth(alice.token, { type: 'bearer' })
+      .send({ userId: bob.user.id })
+      .expect(201);
+    const inviteId = data<{ invitation: { id: string } }>(invited).invitation.id;
+
+    const invitations = await request(app).get('/api/v1/groups/invitations')
+      .auth(bob.token, { type: 'bearer' })
+      .expect(200);
+    const invitationItems = data<{ items: Array<{ id: string; group: { id: string; name: string } }> }>(invitations).items;
+    expect(invitationItems).toHaveLength(1);
+    expect(invitationItems[0]?.id).toBe(inviteId);
+    expect(invitationItems[0]?.group).toMatchObject({ id: groupId, name: 'Private Robotics Lab' });
+
+    await request(app).get(`/api/v1/groups/${groupId}`)
+      .auth(bob.token, { type: 'bearer' })
+      .expect(404);
+
+    await request(app).patch(`/api/v1/groups/invitations/${inviteId}`)
+      .auth(bob.token, { type: 'bearer' })
+      .send({ action: 'accept' })
+      .expect(200);
+
+    await request(app).get(`/api/v1/groups/${groupId}`)
+      .auth(bob.token, { type: 'bearer' })
+      .expect(200);
+    const mine = await request(app).get('/api/v1/groups/mine')
+      .auth(bob.token, { type: 'bearer' })
+      .expect(200);
+    expect(data<{ items: Array<{ id: string }> }>(mine).items)
+      .toEqual(expect.arrayContaining([expect.objectContaining({ id: groupId })]));
+  });
+
+  it('rejects reports for missing targets and cleans post relations during moderation', async () => {
+    const alice = await member('Alice');
+    const bob = await member('Bob');
+    const admin = await member('Moderator', 'admin');
+
+    await request(app).post('/api/v1/reports')
+      .auth(bob.token, { type: 'bearer' })
+      .send({
+        targetType: 'post',
+        targetId: new mongoose.Types.ObjectId().toString(),
+        reason: 'spam',
+        details: '',
+      })
+      .expect(404);
+
+    const created = await request(app).post('/api/v1/posts')
+      .auth(alice.token, { type: 'bearer' })
+      .send({ content: 'Moderation cleanup target' })
+      .expect(201);
+    const postId = data<{ post: { _id: string } }>(created).post._id;
+
+    await request(app).put(`/api/v1/posts/${postId}/reaction`)
+      .auth(bob.token, { type: 'bearer' }).send({ reaction: 'LIKE' }).expect(200);
+    await request(app).put(`/api/v1/posts/${postId}/bookmark`)
+      .auth(bob.token, { type: 'bearer' }).expect(200);
+    await request(app).post(`/api/v1/posts/${postId}/comments`)
+      .auth(bob.token, { type: 'bearer' }).send({ content: 'review this' }).expect(201);
+
+    const reported = await request(app).post('/api/v1/reports')
+      .auth(bob.token, { type: 'bearer' })
+      .send({ targetType: 'post', targetId: postId, reason: 'inappropriate', details: 'cleanup test' })
+      .expect(201);
+    const reportId = data<{ report: { _id: string } }>(reported).report._id;
+
+    await request(app).patch(`/api/v1/reports/${reportId}`)
+      .auth(admin.token, { type: 'bearer' })
+      .send({ action: 'remove_content' })
+      .expect(200);
+
+    expect(await PostModel.countDocuments({ _id: postId })).toBe(0);
+    expect(await PostLikeModel.countDocuments({ post: postId })).toBe(0);
+    expect(await PostBookmarkModel.countDocuments({ post: postId })).toBe(0);
+    expect(await PostCommentModel.countDocuments({ post: postId })).toBe(0);
   });
 
   it('lets members submit reports and restricts moderation actions to admins', async () => {
