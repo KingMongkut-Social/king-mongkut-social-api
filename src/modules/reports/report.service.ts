@@ -1,6 +1,7 @@
 import { Types } from 'mongoose';
 import { AppError } from '../../common/errors/app-error.js';
 import { CommunityGroupModel } from '../groups/group.model.js';
+import { GroupInviteModel } from '../groups/group-invite.model.js';
 import { GroupMemberModel } from '../groups/group-member.model.js';
 import { GroupPostModel } from '../groups/group-post.model.js';
 import { PostCommentModel } from '../posts/post-comment.model.js';
@@ -73,6 +74,7 @@ export async function moderate(
       if (!removed.deletedCount) throw new AppError(404, 'REPORT_TARGET_NOT_FOUND', 'Reported group no longer exists');
       await Promise.all([
         GroupMemberModel.deleteMany({ group: report.targetId }),
+        GroupInviteModel.deleteMany({ group: report.targetId }),
         GroupPostModel.deleteMany({ group: report.targetId }),
       ]);
     } else {
