@@ -1,5 +1,7 @@
 import { Types } from 'mongoose';
 import { AppError } from '../../common/errors/app-error.js';
+import { disconnectUserSockets } from '../chats/chat.realtime.js';
+import { SessionModel } from '../auth/session.model.js';
 import { CommunityGroupModel } from '../groups/group.model.js';
 import { GroupMemberModel } from '../groups/group-member.model.js';
 import { GroupPostModel } from '../groups/group-post.model.js';
@@ -142,6 +144,11 @@ export async function moderate(
     if (report.targetId === moderatorId) throw new AppError(400, 'BAD_REQUEST', 'Cannot suspend yourself');
     const result = await UserModel.updateOne({ _id: report.targetId }, { $set: { isActive: false } });
     if (!result.matchedCount) throw new AppError(404, 'REPORT_TARGET_NOT_FOUND', 'Report target not found');
+    await SessionModel.updateMany(
+      { user: report.targetId, revokedAt: null },
+      { $set: { revokedAt: new Date() } },
+    );
+    disconnectUserSockets(report.targetId);
   }
 
   report.status = action === 'dismiss' ? 'dismissed' : 'resolved';

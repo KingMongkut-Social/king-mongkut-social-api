@@ -38,6 +38,20 @@ async function member(name: string, complete = true) {
   return { user, token: await signAccessToken(user.id, user.role) };
 }
 
+async function admin(name: string) {
+  const user = await UserModel.create({
+    name,
+    email: `${name.toLowerCase()}@kmitl.ac.th`,
+    googleSub: `google-${name.toLowerCase()}`,
+    university: 'KMITL',
+    emailVerified: true,
+    faculty: 'Engineering',
+    department: 'Computer',
+    role: 'admin',
+  });
+  return { user, token: await signAccessToken(user.id, user.role) };
+}
+
 async function makeFriends(first: Awaited<ReturnType<typeof member>>, second: Awaited<ReturnType<typeof member>>) {
   await FriendshipModel.create({ requester: first.user._id, recipient: second.user._id, status: 'accepted' });
 }
@@ -399,6 +413,41 @@ describe('Socket.IO delivery', () => {
     const unread = await request(server).get('/api/v1/notifications?unreadOnly=1')
       .auth(alice.token, { type: 'bearer' }).expect(200);
     expect(data<{ total: number; unreadCount: number }>(unread)).toMatchObject({ total: 0, unreadCount: 0 });
+  });
+
+
+  it('disconnects every live socket immediately when moderation suspends an account', async () => {
+    const alice = await member('Alice');
+    const bob = await member('Bob');
+    const moderator = await admin('Moderator');
+    const bobSocket = await socketClient(bob.token);
+
+    const disconnected = new Promise<string>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('Timed out waiting for suspended socket disconnect')), 5_000);
+      bobSocket.once('disconnect', (reason) => {
+        clearTimeout(timeout);
+        resolve(reason);
+      });
+    });
+
+    const created = await request(server).post('/api/v1/reports')
+      .auth(alice.token, { type: 'bearer' })
+      .send({
+        targetType: 'user',
+        targetId: bob.user.id,
+        reason: 'harassment',
+        details: 'Moderation test',
+      })
+      .expect(201);
+    const reportId = data<{ report: { _id: string } }>(created).report._id;
+
+    await request(server).patch(`/api/v1/reports/${reportId}`)
+      .auth(moderator.token, { type: 'bearer' })
+      .send({ action: 'suspend_user' })
+      .expect(200);
+
+    expect(await disconnected).toBe('io server disconnect');
+    await request(server).get('/api/v1/chats').auth(bob.token, { type: 'bearer' }).expect(403);
   });
 
 });

@@ -48,3 +48,8 @@ export function emitMessageNew(
 export function emitToUser<T>(userId: string, event: string, payload: T): void {
   io?.to(`user:${userId}`).emit(event, payload);
 }
+
+
+export function disconnectUserSockets(userId: string): void {
+  io?.in(`user:${userId}`).disconnectSockets(true);
+}
