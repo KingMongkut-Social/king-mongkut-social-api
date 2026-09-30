@@ -83,9 +83,9 @@ describe('completed social platform APIs', () => {
       .auth(alice.token, { type: 'bearer' })
       .send({ content: 'Reaction target' })
       .expect(201);
-    const post = data<{ post: { id: string } }>(created).post;
+    const post = data<{ post: { _id: string } }>(created).post;
 
-    const reacted = await request(app).put(`/api/v1/posts/${post.id}/reaction`)
+    const reacted = await request(app).put(`/api/v1/posts/${post._id}/reaction`)
       .auth(bob.token, { type: 'bearer' })
       .send({ reaction: 'LOVE' })
       .expect(200);
@@ -105,7 +105,7 @@ describe('completed social platform APIs', () => {
     expect(notificationData.unreadCount).toBe(1);
     expect(notificationData.items[0]).toMatchObject({
       type: 'post_reaction',
-      entityId: post.id,
+      entityId: post._id,
       read: false,
     });
 
@@ -305,7 +305,7 @@ describe('completed social platform APIs', () => {
 
     const postCreated = await request(app).post('/api/v1/posts')
       .auth(alice.token, { type: 'bearer' }).send({ content: 'Moderation cleanup' }).expect(201);
-    const postId = data<{ post: { id: string } }>(postCreated).post.id;
+    const postId = data<{ post: { _id: string } }>(postCreated).post._id;
     await request(app).put(`/api/v1/posts/${postId}/reaction`)
       .auth(bob.token, { type: 'bearer' }).send({ reaction: 'LIKE' }).expect(200);
     await request(app).put(`/api/v1/posts/${postId}/bookmark`)
