@@ -1,4 +1,4 @@
-import { Types } from 'mongoose';
+import type { Types } from 'mongoose';
 import { AppError } from '../../common/errors/app-error.js';
 import { createNotification } from '../notifications/notification.service.js';
 import { NotificationModel } from '../notifications/notification.model.js';
