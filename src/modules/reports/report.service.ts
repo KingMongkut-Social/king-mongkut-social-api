@@ -5,6 +5,7 @@ import { SessionModel } from '../auth/session.model.js';
 import { CommunityGroupModel } from '../groups/group.model.js';
 import { GroupMemberModel } from '../groups/group-member.model.js';
 import { GroupPostModel } from '../groups/group-post.model.js';
+import { deletePost as deleteGroupPost, purgeGroupData } from '../groups/group.service.js';
 import { PostCommentModel } from '../posts/post-comment.model.js';
 import { PostModel } from '../posts/post.model.js';
 import * as postService from '../posts/post.service.js';
@@ -123,17 +124,14 @@ export async function moderate(
       if (!comment) throw new AppError(404, 'REPORT_TARGET_NOT_FOUND', 'Report target not found');
       await postService.deleteComment(String(comment.post), report.targetId, moderatorId, 'admin');
     } else if (report.targetType === 'group_post') {
-      const result = await GroupPostModel.deleteOne({ _id: report.targetId });
-      if (!result.deletedCount) throw new AppError(404, 'REPORT_TARGET_NOT_FOUND', 'Report target not found');
+      const groupPost = await GroupPostModel.findById(report.targetId).select('group').lean();
+      if (!groupPost) throw new AppError(404, 'REPORT_TARGET_NOT_FOUND', 'Report target not found');
+      await deleteGroupPost(String(groupPost.group), report.targetId, moderatorId, 'admin');
     } else if (report.targetType === 'group') {
       if (!await CommunityGroupModel.exists({ _id: report.targetId })) {
         throw new AppError(404, 'REPORT_TARGET_NOT_FOUND', 'Report target not found');
       }
-      await Promise.all([
-        CommunityGroupModel.deleteOne({ _id: report.targetId }),
-        GroupMemberModel.deleteMany({ group: report.targetId }),
-        GroupPostModel.deleteMany({ group: report.targetId }),
-      ]);
+      await purgeGroupData(report.targetId);
     } else {
       throw new AppError(422, 'INVALID_MODERATION_ACTION', 'Cannot remove this target as content');
     }

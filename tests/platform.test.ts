@@ -400,3 +400,34 @@ describe('completed social platform APIs', () => {
   });
 
 });
+
+
+describe('content lifecycle cleanup', () => {
+  it('resolves pending reports automatically when reported content is deleted', async () => {
+    const alice = await member('CleanupAlice');
+    const bob = await member('CleanupBob');
+    const post = data<{ post: { _id: string } }>(
+      await request(app).post('/api/v1/posts').auth(alice.token, { type: 'bearer' })
+        .send({ content: 'Delete me' }).expect(201),
+    ).post;
+    const comment = data<{ comment: { _id: string } }>(
+      await request(app).post(`/api/v1/posts/${post._id}/comments`).auth(bob.token, { type: 'bearer' })
+        .send({ content: 'Reported comment' }).expect(201),
+    ).comment;
+
+    await request(app).post('/api/v1/reports').auth(bob.token, { type: 'bearer' })
+      .send({ targetType: 'post', targetId: post._id, reason: 'spam', details: '' }).expect(201);
+    await request(app).post('/api/v1/reports').auth(alice.token, { type: 'bearer' })
+      .send({ targetType: 'comment', targetId: comment._id, reason: 'other', details: '' }).expect(201);
+
+    await request(app).delete(`/api/v1/posts/${post._id}`).auth(alice.token, { type: 'bearer' }).expect(204);
+
+    const stale = await ReportModel.find({
+      status: 'pending',
+      $or: [{ targetId: post._id }, { targetId: comment._id }],
+    }).lean();
+    expect(stale).toHaveLength(0);
+    const resolved = await ReportModel.find({ targetId: { $in: [post._id, comment._id] } }).lean();
+    expect(resolved.every((item) => item.status === 'resolved' && item.action === 'content_deleted')).toBe(true);
+  });
+});

@@ -6,6 +6,7 @@ import { UserModel, type Role } from '../users/user.model.js';
 import { CommunityGroupModel } from './group.model.js';
 import { GroupMemberModel, type GroupRole } from './group-member.model.js';
 import { GroupPostModel } from './group-post.model.js';
+import { ReportModel } from '../reports/report.model.js';
 
 function escapeRegex(value: string) {
   return value.replace(/[.*+?^$()|[\]\\]/g, '\\$&');
@@ -344,14 +345,34 @@ export async function deletePost(id: string, postId: string, userId: string, app
     }
   }
   await post.deleteOne();
+  await ReportModel.updateMany(
+    { targetType: 'group_post', targetId: postId, status: 'pending' },
+    { $set: { status: 'resolved', action: 'content_deleted' } },
+  );
 }
 
-export async function deleteGroup(id: string, actorId: string) {
-  await requireGroupRole(id, actorId, ['owner']);
+export async function purgeGroupData(id: string) {
+  const posts = await GroupPostModel.find({ group: id }).select('_id').lean();
+  const postIds = posts.map((post) => String(post._id));
   await Promise.all([
     GroupPostModel.deleteMany({ group: id }),
     GroupMemberModel.deleteMany({ group: id }),
     NotificationModel.deleteMany({ entityId: id, type: { $in: ['group_invite', 'group_join'] } }),
+    ReportModel.updateMany(
+      {
+        status: 'pending',
+        $or: [
+          { targetType: 'group', targetId: id },
+          ...(postIds.length ? [{ targetType: 'group_post', targetId: { $in: postIds } }] : []),
+        ],
+      },
+      { $set: { status: 'resolved', action: 'content_deleted' } },
+    ),
     CommunityGroupModel.deleteOne({ _id: id }),
   ]);
+}
+
+export async function deleteGroup(id: string, actorId: string) {
+  await requireGroupRole(id, actorId, ['owner']);
+  await purgeGroupData(id);
 }

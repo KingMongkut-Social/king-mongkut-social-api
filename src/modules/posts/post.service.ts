@@ -7,6 +7,8 @@ import { PostBookmarkModel } from './post-bookmark.model.js';
 import { PostCommentModel } from './post-comment.model.js';
 import { PostLikeModel, type PostReaction } from './post-like.model.js';
 import { createNotification } from '../notifications/notification.service.js';
+import { NotificationModel } from '../notifications/notification.model.js';
+import { ReportModel } from '../reports/report.model.js';
 import { PostModel, type PostAttachment } from './post.model.js';
 import type { CreateCommentInput, CreatePostInput, ListCommentsQuery, ListPostsQuery, UpdatePostInput } from './post.schemas.js';
 
@@ -262,11 +264,27 @@ export async function updatePost(id: string, userId: string, role: Role, input: 
 
 export async function deletePost(id: string, userId: string, role: Role) {
   const post = await getOwnedPost(id, userId, role);
+  const comments = await PostCommentModel.find({ post: post._id }).select('_id').lean();
+  const commentIds = comments.map((comment) => String(comment._id));
   await post.deleteOne();
   await Promise.all([
     PostLikeModel.deleteMany({ post: post._id }),
     PostBookmarkModel.deleteMany({ post: post._id }),
     PostCommentModel.deleteMany({ post: post._id }),
+    NotificationModel.deleteMany({
+      entityId: id,
+      type: { $in: ['post_reaction', 'post_comment', 'comment_reply'] },
+    }),
+    ReportModel.updateMany(
+      {
+        status: 'pending',
+        $or: [
+          { targetType: 'post', targetId: id },
+          ...(commentIds.length ? [{ targetType: 'comment', targetId: { $in: commentIds } }] : []),
+        ],
+      },
+      { $set: { status: 'resolved', action: 'content_deleted' } },
+    ),
   ]);
 }
 
@@ -382,5 +400,11 @@ export async function deleteComment(postId: string, commentId: string, userId: s
     throw new AppError(403, 'FORBIDDEN', 'You cannot delete this comment');
   }
   await comment.deleteOne();
-  await PostCommentModel.updateMany({ post: postId, parentId: commentId }, { $set: { parentId: null } });
+  await Promise.all([
+    PostCommentModel.updateMany({ post: postId, parentId: commentId }, { $set: { parentId: null } }),
+    ReportModel.updateMany(
+      { targetType: 'comment', targetId: commentId, status: 'pending' },
+      { $set: { status: 'resolved', action: 'content_deleted' } },
+    ),
+  ]);
 }
