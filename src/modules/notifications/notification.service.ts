@@ -29,7 +29,7 @@ function serialize(item: NotificationView) {
   return {
     id: objectIdString(item._id),
     recipientId: objectIdString(item.recipient),
-    actor: actorId ? {
+    actor: actor && actorId ? {
       id: actorId,
       name: actor.name ?? 'ผู้ใช้',
       avatarUrl: actor.avatarUrl ?? null,
