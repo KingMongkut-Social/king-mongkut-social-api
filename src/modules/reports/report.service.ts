@@ -6,14 +6,14 @@ import { GroupPostModel } from '../groups/group-post.model.js';
 import { PostCommentModel } from '../posts/post-comment.model.js';
 import { PostModel } from '../posts/post.model.js';
 import { UserModel } from '../users/user.model.js';
-import { ReportModel } from './report.model.js';
+import { ReportModel, type ReportReason } from './report.model.js';
 
 export async function createReport(
   reporterId: string,
   input: {
     targetType: 'post' | 'comment' | 'user' | 'group';
     targetId: string;
-    reason: string;
+    reason: ReportReason;
     details: string;
   },
 ) {
@@ -23,7 +23,11 @@ export async function createReport(
   return ReportModel.create({ ...input, reporter: reporterId });
 }
 
-export async function listReports(status: string, page: number, limit: number) {
+export async function listReports(
+  status: 'pending' | 'resolved' | 'dismissed',
+  page: number,
+  limit: number,
+) {
   const [items, total] = await Promise.all([
     ReportModel.find({ status }).sort({ createdAt: -1 })
       .skip((page - 1) * limit).limit(limit)

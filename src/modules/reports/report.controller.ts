@@ -24,7 +24,7 @@ export async function list(req: Request, res: Response) {
   res.json({
     success: true,
     data: await service.listReports(
-      String(req.query.status ?? 'pending'),
+      (req.query.status ?? 'pending') as 'pending' | 'resolved' | 'dismissed',
       Number(req.query.page ?? 1),
       Number(req.query.limit ?? 20),
     ),
