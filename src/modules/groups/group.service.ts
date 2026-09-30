@@ -359,15 +359,15 @@ export async function purgeGroupData(id: string) {
     GroupMemberModel.deleteMany({ group: id }),
     NotificationModel.deleteMany({ entityId: id, type: { $in: ['group_invite', 'group_join'] } }),
     ReportModel.updateMany(
-      {
-        status: 'pending',
-        $or: [
-          { targetType: 'group', targetId: id },
-          ...(postIds.length ? [{ targetType: 'group_post', targetId: { $in: postIds } }] : []),
-        ],
-      },
+      { targetType: 'group', targetId: id, status: 'pending' },
       { $set: { status: 'resolved', action: 'content_deleted' } },
     ),
+    ...(postIds.length ? [
+      ReportModel.updateMany(
+        { targetType: 'group_post', targetId: { $in: postIds }, status: 'pending' },
+        { $set: { status: 'resolved', action: 'content_deleted' } },
+      ),
+    ] : []),
     CommunityGroupModel.deleteOne({ _id: id }),
   ]);
 }

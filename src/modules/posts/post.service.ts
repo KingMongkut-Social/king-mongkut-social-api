@@ -276,15 +276,15 @@ export async function deletePost(id: string, userId: string, role: Role) {
       type: { $in: ['post_reaction', 'post_comment', 'comment_reply'] },
     }),
     ReportModel.updateMany(
-      {
-        status: 'pending',
-        $or: [
-          { targetType: 'post', targetId: id },
-          ...(commentIds.length ? [{ targetType: 'comment', targetId: { $in: commentIds } }] : []),
-        ],
-      },
+      { targetType: 'post', targetId: id, status: 'pending' },
       { $set: { status: 'resolved', action: 'content_deleted' } },
     ),
+    ...(commentIds.length ? [
+      ReportModel.updateMany(
+        { targetType: 'comment', targetId: { $in: commentIds }, status: 'pending' },
+        { $set: { status: 'resolved', action: 'content_deleted' } },
+      ),
+    ] : []),
   ]);
 }
 
