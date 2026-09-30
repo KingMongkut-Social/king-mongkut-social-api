@@ -58,7 +58,16 @@ if (!parsed.success) {
   process.exit(1);
 }
 
+const refreshCookieSameSite = parsed.data.NODE_ENV === 'production'
+  ? 'none'
+  : parsed.data.COOKIE_SAME_SITE;
+
 export const env = {
   ...parsed.data,
+  // Production frontend/API deployments are commonly cross-origin. A refresh cookie
+  // with SameSite=Lax is then omitted from credentialed fetches after OAuth, which
+  // makes the frontend look logged out immediately after a successful Google callback.
+  // Production already requires HTTPS + Secure cookies, so use SameSite=None there.
+  COOKIE_SAME_SITE: refreshCookieSameSite,
   CORS_ORIGINS: parsed.data.CORS_ORIGINS.split(',').map((origin) => origin.trim()).filter(Boolean),
 };

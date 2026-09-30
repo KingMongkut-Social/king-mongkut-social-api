@@ -38,7 +38,8 @@ Reference: [Google OpenID Connect server flow](https://developers.google.com/ide
 ## Production and rollout
 
 - Configure `FRONTEND_URL` as the frontend origin, `GOOGLE_REDIRECT_URI` as the public HTTPS API callback URL, `CORS_ORIGINS` to include the frontend, and `COOKIE_SECURE=true`. Register the exact callback with Google. HTTPS and secure cookies are enforced in production.
-- Prefer frontend and API on the same site, with `COOKIE_SAME_SITE=lax`. For different sites, `none` requires HTTPS and browsers that allow the cookie; third-party cookie blocking may still prevent session restoration.
+- The API now forces the refresh cookie to `SameSite=None` in production so credentialed frontend requests can restore the session after the Google redirect even when the frontend and API use different origins/sites. The short-lived Google OAuth binding cookie remains `SameSite=Lax` because it is only needed on the top-level callback navigation.
+- In development/test, `COOKIE_SAME_SITE` is still honored so localhost can keep using `lax` without requiring HTTPS.
 - If serving the frontend on port 8080 through Docker, update both `FRONTEND_URL` and `CORS_ORIGINS` accordingly. Keep `VITE_API_BASE_URL` pointed at the public API URL.
 - Deploy API and frontend together. Run `npm run build` and `npm run db:indexes` in the API deployment before accepting logins. Production disables automatic index creation. The new partial unique Google subject index and OAuth transaction TTL index must exist.
 - Existing user documents and password hashes are preserved. No database reset or bulk user migration is needed. Legacy JWTs without `authVersion: 2` are rejected immediately; users must sign in with Google. Old session documents expire through their existing TTL index.

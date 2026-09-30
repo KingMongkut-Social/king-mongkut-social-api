@@ -66,7 +66,7 @@ GOOGLE_REDIRECT_URI=https://your-api.example.com/api/v1/auth/google/callback
 TRUST_PROXY=1
 ```
 
-> หาก frontend/backend อยู่ same-site สามารถใช้ `COOKIE_SAME_SITE=lax` ได้ ซึ่งปลอดภัยกว่า `none` เมื่อ deployment architecture รองรับ
+> ใน production API จะใช้ refresh cookie แบบ `SameSite=None; Secure` เพื่อให้ OAuth session restore ทำงานได้แม้ frontend/API แยก origin กัน ส่วน `COOKIE_SAME_SITE` ยังใช้ตามค่าที่ตั้งไว้ใน development/test
 
 ## Main endpoints
 
