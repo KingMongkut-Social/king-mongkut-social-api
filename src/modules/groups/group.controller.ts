@@ -16,6 +16,26 @@ export async function create(req: Request, res: Response) {
     data: { group: await service.createGroup(userId(req), req.body as never) },
   });
 }
+export async function mine(req: Request, res: Response) {
+  res.json({
+    success: true,
+    data: await service.listMyGroups(
+      userId(req),
+      Number(req.query.page ?? 1),
+      Number(req.query.limit ?? 20),
+    ),
+  });
+}
+export async function invitations(req: Request, res: Response) {
+  res.json({ success: true, data: { items: await service.listInvitations(userId(req)) } });
+}
+export async function respondInvitation(req: Request, res: Response) {
+  const action = (req.body as { action: 'accept' | 'reject' }).action;
+  res.json({
+    success: true,
+    data: await service.respondInvitation(String(req.params.inviteId), userId(req), action),
+  });
+}
 export async function get(req: Request, res: Response) {
   res.json({
     success: true,
@@ -66,5 +86,14 @@ export async function createPost(req: Request, res: Response) {
         String((req.body as { content: string }).content),
       ),
     },
+  });
+}
+
+
+export async function invite(req: Request, res: Response) {
+  const targetUserId = String((req.body as { userId: string }).userId);
+  res.status(201).json({
+    success: true,
+    data: { invitation: await service.inviteMember(String(req.params.id), userId(req), targetUserId) },
   });
 }
