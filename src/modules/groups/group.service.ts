@@ -272,6 +272,24 @@ export async function listMembers(id: string, page: number, limit: number, viewe
   };
 }
 
+function serializeGroupPost(post: {
+  _id: Types.ObjectId;
+  group: Types.ObjectId;
+  author: unknown;
+  content: string;
+  createdAt: Date;
+  updatedAt: Date;
+}) {
+  return {
+    id: post._id.toHexString(),
+    groupId: post.group.toHexString(),
+    content: post.content,
+    author: post.author,
+    createdAt: post.createdAt,
+    updatedAt: post.updatedAt,
+  };
+}
+
 export async function listPosts(id: string, page: number, limit: number, viewerId?: string) {
   await requireReadableGroup(id, viewerId);
   const [posts, total] = await Promise.all([
@@ -281,12 +299,7 @@ export async function listPosts(id: string, page: number, limit: number, viewerI
     GroupPostModel.countDocuments({ group: id }),
   ]);
   return {
-    items: posts.map((post) => ({
-      id: String(post._id),
-      content: post.content,
-      author: post.author,
-      createdAt: post.createdAt,
-    })),
+    items: posts.map((post) => serializeGroupPost(post)),
     page,
     limit,
     total,
@@ -298,9 +311,11 @@ export async function createPost(id: string, userId: string, content: string) {
   await requireReadableGroup(id, userId);
   const member = await GroupMemberModel.exists({ group: id, user: userId });
   if (!member) throw new AppError(403, 'GROUP_MEMBERS_ONLY', 'Join the group before posting');
-  const post = await GroupPostModel.create({ group: id, author: userId, content });
-  return GroupPostModel.findById(post._id)
+  const created = await GroupPostModel.create({ group: id, author: userId, content });
+  const post = await GroupPostModel.findById(created._id)
     .populate('author', 'name username avatarUrl university').lean();
+  if (!post) throw new AppError(404, 'GROUP_POST_NOT_FOUND', 'Group post not found');
+  return serializeGroupPost(post);
 }
 
 export async function deletePost(id: string, postId: string, userId: string, appRole: Role) {
