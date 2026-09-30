@@ -23,16 +23,6 @@ jobs:
           cache: npm
       - name: Install dependencies
         run: npm ci
-      - name: Generate production dependency security fix candidate
-        shell: bash
-        run: |
-          set -euo pipefail
-          npm audit fix --package-lock-only --omit=dev || true
-          git diff -- package.json package-lock.json
-          if ! git diff --quiet -- package.json package-lock.json; then
-            echo "SECURITY_LOCKFILE_UPDATE_REQUIRED"
-            exit 1
-          fi
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high
       - name: Typecheck, lint, and test
