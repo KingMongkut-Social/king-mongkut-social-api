@@ -3,7 +3,7 @@ import { objectIdSchema } from '../users/user.schemas.js';
 
 export const reportParamsSchema = z.object({ id: objectIdSchema });
 export const createReportSchema = z.object({
-  targetType: z.enum(['post', 'comment', 'user', 'group']),
+  targetType: z.enum(['post', 'comment', 'user', 'group', 'group_post']),
   targetId: objectIdSchema,
   reason: z.enum(['spam', 'harassment', 'inappropriate', 'fake_account', 'scam', 'other']),
   details: z.string().trim().max(2000).default(''),

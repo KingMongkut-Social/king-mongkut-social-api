@@ -1,15 +1,19 @@
+import type { Types } from 'mongoose';
 import { AppError } from '../../common/errors/app-error.js';
 import { createNotification } from '../notifications/notification.service.js';
+import { NotificationModel } from '../notifications/notification.model.js';
+import { UserModel, type Role } from '../users/user.model.js';
 import { CommunityGroupModel } from './group.model.js';
-import { GroupMemberModel } from './group-member.model.js';
+import { GroupMemberModel, type GroupRole } from './group-member.model.js';
 import { GroupPostModel } from './group-post.model.js';
+import { ReportModel } from '../reports/report.model.js';
 
 function escapeRegex(value: string) {
   return value.replace(/[.*+?^$()|[\]\\]/g, '\\$&');
 }
 
 type GroupView = {
-  _id: unknown;
+  _id: Types.ObjectId;
   name: string;
   description: string;
   coverUrl?: string | null;
@@ -20,11 +24,11 @@ type GroupView = {
 };
 
 async function serializeGroup(group: GroupView, viewerId?: string) {
-  const groupId = String(group._id);
+  const groupId = group._id.toHexString();
   const [memberCount, membership] = await Promise.all([
-    GroupMemberModel.countDocuments({ group: groupId }),
+    GroupMemberModel.countDocuments({ group: group._id }),
     viewerId
-      ? GroupMemberModel.findOne({ group: groupId, user: viewerId }).select('role').lean()
+      ? GroupMemberModel.findOne({ group: group._id, user: viewerId }).select('role').lean()
       : null,
   ]);
   return {
@@ -52,16 +56,54 @@ async function requireReadableGroup(id: string, viewerId?: string) {
   return group;
 }
 
+async function serializeMembershipById(membershipId: Types.ObjectId | string) {
+  const membership = await GroupMemberModel.findById(membershipId)
+    .populate('user', 'name username avatarUrl university faculty department').lean();
+  if (!membership) throw new AppError(404, 'GROUP_MEMBERSHIP_NOT_FOUND', 'Group membership not found');
+  return {
+    id: String(membership._id),
+    role: membership.role,
+    user: membership.user,
+    joinedAt: membership.createdAt,
+  };
+}
+
+async function requireGroupRole(groupId: string, userId: string, allowed: GroupRole[]) {
+  const [group, membership] = await Promise.all([
+    CommunityGroupModel.findById(groupId).lean(),
+    GroupMemberModel.findOne({ group: groupId, user: userId }),
+  ]);
+  if (!group) throw new AppError(404, 'GROUP_NOT_FOUND', 'Group not found');
+  if (!membership || !allowed.includes(membership.role)) {
+    throw new AppError(403, 'GROUP_PERMISSION_DENIED', 'You do not have permission to manage this group');
+  }
+  return { group, membership };
+}
+
 export async function listGroups(
   query: { q?: string; university?: string; page: number; limit: number },
   viewerId?: string,
 ) {
-  const filter: Record<string, unknown> = { privacy: 'public' };
+  const clauses: Record<string, unknown>[] = [];
+  if (viewerId) {
+    const memberships = await GroupMemberModel.find({ user: viewerId }).select('group').lean();
+    clauses.push({
+      $or: [
+        { privacy: 'public' },
+        { _id: { $in: memberships.map((membership) => membership.group) } },
+      ],
+    });
+  } else {
+    clauses.push({ privacy: 'public' });
+  }
+
   if (query.q) {
     const pattern = new RegExp(escapeRegex(query.q), 'i');
-    filter.$or = [{ name: pattern }, { description: pattern }];
+    clauses.push({ $or: [{ name: pattern }, { description: pattern }] });
   }
-  if (query.university) filter.university = query.university;
+  if (query.university) clauses.push({ university: query.university });
+
+  const filter: Record<string, unknown> = clauses.length === 1 ? clauses[0]! : { $and: clauses };
   const [groups, total] = await Promise.all([
     CommunityGroupModel.find(filter).sort({ createdAt: -1 })
       .skip((query.page - 1) * query.limit).limit(query.limit)
@@ -75,6 +117,20 @@ export async function listGroups(
     total,
     pages: Math.ceil(total / query.limit),
   };
+}
+
+export async function listUserGroups(targetUserId: string, viewerId?: string) {
+  if (!await UserModel.exists({ _id: targetUserId, isActive: true })) {
+    throw new AppError(404, 'USER_NOT_FOUND', 'User not found');
+  }
+  const memberships = await GroupMemberModel.find({ user: targetUserId }).select('group').lean();
+  const filter: Record<string, unknown> = {
+    _id: { $in: memberships.map((membership) => membership.group) },
+    ...(viewerId === targetUserId ? {} : { privacy: 'public' }),
+  };
+  const groups = await CommunityGroupModel.find(filter).sort({ createdAt: -1 })
+    .populate('creator', 'name username avatarUrl university').lean();
+  return Promise.all(groups.map((group) => serializeGroup(group as unknown as GroupView, viewerId)));
 }
 
 export async function createGroup(
@@ -115,20 +171,25 @@ export async function joinGroup(id: string, userId: string) {
   const group = await CommunityGroupModel.findById(id).lean();
   if (!group) throw new AppError(404, 'GROUP_NOT_FOUND', 'Group not found');
   if (group.privacy === 'private') {
-    throw new AppError(403, 'GROUP_PRIVATE', 'Private groups require an invitation');
+    throw new AppError(403, 'GROUP_PRIVATE', 'Private groups require an owner or admin to add you');
   }
-  await GroupMemberModel.updateOne(
+
+  const result = await GroupMemberModel.updateOne(
     { group: id, user: userId },
     { $setOnInsert: { group: id, user: userId, role: 'member' } },
     { upsert: true },
   );
-  if (String(group.creator) !== userId) {
-    await createNotification({
-      recipientId: String(group.creator),
-      actorId: userId,
-      type: 'group_join',
-      entityId: id,
-    });
+  if (result.upsertedCount > 0) {
+    const owner = await GroupMemberModel.findOne({ group: id, role: 'owner' }).select('user').lean();
+    const recipientId = owner ? String(owner.user) : String(group.creator);
+    if (recipientId !== userId) {
+      await createNotification({
+        recipientId,
+        actorId: userId,
+        type: 'group_join',
+        entityId: id,
+      });
+    }
   }
   return getGroup(id, userId);
 }
@@ -141,6 +202,69 @@ export async function leaveGroup(id: string, userId: string) {
   }
   await membership.deleteOne();
   return { left: true };
+}
+
+export async function addMember(id: string, actorId: string, targetUserId: string) {
+  const { group } = await requireGroupRole(id, actorId, ['owner', 'admin']);
+  if (!await UserModel.exists({ _id: targetUserId, isActive: true })) {
+    throw new AppError(404, 'USER_NOT_FOUND', 'Target user not found');
+  }
+  try {
+    const membership = await GroupMemberModel.create({ group: id, user: targetUserId, role: 'member' });
+    await createNotification({
+      recipientId: targetUserId,
+      actorId,
+      type: 'group_invite',
+      entityId: id,
+      content: group.name,
+    });
+    return serializeMembershipById(membership._id);
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 11000) {
+      throw new AppError(409, 'GROUP_MEMBER_EXISTS', 'User is already a member of this group');
+    }
+    throw error;
+  }
+}
+
+export async function updateMemberRole(id: string, actorId: string, targetUserId: string, role: GroupRole) {
+  const { membership: actorMembership } = await requireGroupRole(id, actorId, ['owner']);
+  const target = await GroupMemberModel.findOne({ group: id, user: targetUserId });
+  if (!target) throw new AppError(404, 'GROUP_MEMBERSHIP_NOT_FOUND', 'Group membership not found');
+
+  if (target.role === 'owner' && targetUserId !== actorId) {
+    throw new AppError(409, 'GROUP_OWNER_CONFLICT', 'Group already has another owner');
+  }
+
+  if (role === 'owner') {
+    if (targetUserId === actorId) return serializeMembershipById(target._id);
+    target.role = 'owner';
+    await target.save();
+    actorMembership.role = 'admin';
+    await actorMembership.save();
+    return serializeMembershipById(target._id);
+  }
+
+  if (target.role === 'owner') {
+    throw new AppError(409, 'GROUP_OWNER_TRANSFER_REQUIRED', 'Transfer ownership instead of demoting the owner');
+  }
+  target.role = role;
+  await target.save();
+  return serializeMembershipById(target._id);
+}
+
+export async function removeMember(id: string, actorId: string, targetUserId: string) {
+  const { membership: actorMembership } = await requireGroupRole(id, actorId, ['owner', 'admin']);
+  const target = await GroupMemberModel.findOne({ group: id, user: targetUserId });
+  if (!target) throw new AppError(404, 'GROUP_MEMBERSHIP_NOT_FOUND', 'Group membership not found');
+  if (target.role === 'owner') {
+    throw new AppError(409, 'GROUP_OWNER_CANNOT_REMOVE', 'Transfer ownership before removing the owner');
+  }
+  if (actorMembership.role === 'admin' && target.role !== 'member') {
+    throw new AppError(403, 'GROUP_PERMISSION_DENIED', 'Admins can remove regular members only');
+  }
+  await target.deleteOne();
+  return { removed: true };
 }
 
 export async function listMembers(id: string, page: number, limit: number, viewerId?: string) {
@@ -165,6 +289,24 @@ export async function listMembers(id: string, page: number, limit: number, viewe
   };
 }
 
+function serializeGroupPost(post: {
+  _id: Types.ObjectId;
+  group: Types.ObjectId;
+  author: unknown;
+  content: string;
+  createdAt: Date;
+  updatedAt: Date;
+}) {
+  return {
+    id: post._id.toHexString(),
+    groupId: post.group.toHexString(),
+    content: post.content,
+    author: post.author,
+    createdAt: post.createdAt,
+    updatedAt: post.updatedAt,
+  };
+}
+
 export async function listPosts(id: string, page: number, limit: number, viewerId?: string) {
   await requireReadableGroup(id, viewerId);
   const [posts, total] = await Promise.all([
@@ -174,12 +316,7 @@ export async function listPosts(id: string, page: number, limit: number, viewerI
     GroupPostModel.countDocuments({ group: id }),
   ]);
   return {
-    items: posts.map((post) => ({
-      id: String(post._id),
-      content: post.content,
-      author: post.author,
-      createdAt: post.createdAt,
-    })),
+    items: posts.map((post) => serializeGroupPost(post)),
     page,
     limit,
     total,
@@ -188,9 +325,54 @@ export async function listPosts(id: string, page: number, limit: number, viewerI
 }
 
 export async function createPost(id: string, userId: string, content: string) {
+  await requireReadableGroup(id, userId);
   const member = await GroupMemberModel.exists({ group: id, user: userId });
   if (!member) throw new AppError(403, 'GROUP_MEMBERS_ONLY', 'Join the group before posting');
-  const post = await GroupPostModel.create({ group: id, author: userId, content });
-  return GroupPostModel.findById(post._id)
+  const created = await GroupPostModel.create({ group: id, author: userId, content });
+  const post = await GroupPostModel.findById(created._id)
     .populate('author', 'name username avatarUrl university').lean();
+  if (!post) throw new AppError(404, 'GROUP_POST_NOT_FOUND', 'Group post not found');
+  return serializeGroupPost(post);
+}
+
+export async function deletePost(id: string, postId: string, userId: string, appRole: Role) {
+  const post = await GroupPostModel.findOne({ _id: postId, group: id });
+  if (!post) throw new AppError(404, 'GROUP_POST_NOT_FOUND', 'Group post not found');
+  if (appRole !== 'admin' && String(post.author) !== userId) {
+    const membership = await GroupMemberModel.findOne({ group: id, user: userId }).select('role').lean();
+    if (!membership || !['owner', 'admin', 'moderator'].includes(membership.role)) {
+      throw new AppError(403, 'GROUP_PERMISSION_DENIED', 'You cannot delete this group post');
+    }
+  }
+  await post.deleteOne();
+  await ReportModel.updateMany(
+    { targetType: 'group_post', targetId: postId, status: 'pending' },
+    { $set: { status: 'resolved', action: 'content_deleted' } },
+  );
+}
+
+export async function purgeGroupData(id: string) {
+  const posts = await GroupPostModel.find({ group: id }).select('_id').lean();
+  const postIds = posts.map((post) => String(post._id));
+  await Promise.all([
+    GroupPostModel.deleteMany({ group: id }),
+    GroupMemberModel.deleteMany({ group: id }),
+    NotificationModel.deleteMany({ entityId: id, type: { $in: ['group_invite', 'group_join'] } }),
+    ReportModel.updateMany(
+      { targetType: 'group', targetId: id, status: 'pending' },
+      { $set: { status: 'resolved', action: 'content_deleted' } },
+    ),
+    ...(postIds.length ? [
+      ReportModel.updateMany(
+        { targetType: 'group_post', targetId: { $in: postIds }, status: 'pending' },
+        { $set: { status: 'resolved', action: 'content_deleted' } },
+      ),
+    ] : []),
+    CommunityGroupModel.deleteOne({ _id: id }),
+  ]);
+}
+
+export async function deleteGroup(id: string, actorId: string) {
+  await requireGroupRole(id, actorId, ['owner']);
+  await purgeGroupData(id);
 }

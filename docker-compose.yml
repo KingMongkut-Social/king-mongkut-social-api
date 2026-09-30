@@ -29,6 +29,9 @@ services:
       - .env
     environment:
       MONGODB_URI: mongodb://mongo:27017/king_mongkut_social
+    volumes:
+      - uploads_data:/app/uploads
 
 volumes:
   mongo_data:
+  uploads_data:

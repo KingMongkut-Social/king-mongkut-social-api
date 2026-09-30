@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import { AppError } from '../../common/errors/app-error.js';
 import * as service from './report.service.js';
+import type { ReportStatus } from './report.model.js';
 
 function auth(req: Request) {
   if (!req.auth) throw new AppError(401, 'UNAUTHORIZED', 'Authentication required');
@@ -24,7 +25,7 @@ export async function list(req: Request, res: Response) {
   res.json({
     success: true,
     data: await service.listReports(
-      (req.query.status ?? 'pending') as 'pending' | 'resolved' | 'dismissed',
+      (req.query.status ?? 'pending') as ReportStatus,
       Number(req.query.page ?? 1),
       Number(req.query.limit ?? 20),
     ),

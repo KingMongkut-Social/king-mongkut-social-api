@@ -38,6 +38,20 @@ async function member(name: string, complete = true) {
   return { user, token: await signAccessToken(user.id, user.role) };
 }
 
+async function admin(name: string) {
+  const user = await UserModel.create({
+    name,
+    email: `${name.toLowerCase()}@kmitl.ac.th`,
+    googleSub: `google-${name.toLowerCase()}`,
+    university: 'KMITL',
+    emailVerified: true,
+    faculty: 'Engineering',
+    department: 'Computer',
+    role: 'admin',
+  });
+  return { user, token: await signAccessToken(user.id, user.role) };
+}
+
 async function makeFriends(first: Awaited<ReturnType<typeof member>>, second: Awaited<ReturnType<typeof member>>) {
   await FriendshipModel.create({ requester: first.user._id, recipient: second.user._id, status: 'accepted' });
 }
@@ -94,6 +108,36 @@ function nextConversationUpdate(client: ClientSocket): Promise<Record<string, un
     client.once('conversation:updated', (update: Record<string, unknown>) => {
       clearTimeout(timeout);
       resolve(update);
+    });
+  });
+}
+
+function nextNotification(client: ClientSocket): Promise<Record<string, unknown>> {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error('Timed out waiting for notification:new')), 5_000);
+    client.once('notification:new', (notification: Record<string, unknown>) => {
+      clearTimeout(timeout);
+      resolve(notification);
+    });
+  });
+}
+
+function nextNotificationRead(client: ClientSocket): Promise<Record<string, unknown>> {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error('Timed out waiting for notification:read')), 5_000);
+    client.once('notification:read', (payload: Record<string, unknown>) => {
+      clearTimeout(timeout);
+      resolve(payload);
+    });
+  });
+}
+
+function nextNotificationsReadAll(client: ClientSocket): Promise<Record<string, unknown>> {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error('Timed out waiting for notification:read-all')), 5_000);
+    client.once('notification:read-all', (payload: Record<string, unknown>) => {
+      clearTimeout(timeout);
+      resolve(payload);
     });
   });
 }
@@ -319,4 +363,91 @@ describe('Socket.IO delivery', () => {
     expect(data<MessageData[]>(history)).toEqual([]);
     await expect(socketClient(alice.token)).rejects.toThrow();
   });
+
+  it('delivers persistent notifications and read state over the authenticated user socket room', async () => {
+    const alice = await member('Alice');
+    const bob = await member('Bob');
+    const aliceSocket = await socketClient(alice.token);
+    const bobSocket = await socketClient(bob.token);
+
+    const aliceUnexpected = vi.fn();
+    aliceSocket.on('notification:new', aliceUnexpected);
+
+    const bobNotification = nextNotification(bobSocket);
+    const sent = await request(server).post('/api/v1/friends/request')
+      .auth(alice.token, { type: 'bearer' })
+      .send({ targetUserId: bob.user.id })
+      .expect(201);
+    const requestId = data<{ _id: string }>(sent)._id;
+
+    const notification = await bobNotification;
+    expect(notification).toMatchObject({
+      recipientId: bob.user.id,
+      type: 'friend_request',
+      entityId: requestId,
+      read: false,
+      actor: { id: alice.user.id, name: 'Alice' },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(aliceUnexpected).not.toHaveBeenCalled();
+
+    const listed = await request(server).get('/api/v1/notifications')
+      .auth(bob.token, { type: 'bearer' }).expect(200);
+    const notificationId = data<{ items: Array<{ id: string; type: string }> }>(listed).items[0]?.id;
+    expect(notificationId).toBeTruthy();
+
+    const readEvent = nextNotificationRead(bobSocket);
+    await request(server).patch(`/api/v1/notifications/${notificationId}/read`)
+      .auth(bob.token, { type: 'bearer' }).expect(200);
+    expect(await readEvent).toEqual({ id: notificationId });
+
+    await request(server).post('/api/v1/friends/respond')
+      .auth(bob.token, { type: 'bearer' })
+      .send({ requestId, action: 'accept' }).expect(200);
+
+    const allReadEvent = nextNotificationsReadAll(aliceSocket);
+    await request(server).patch('/api/v1/notifications/read-all')
+      .auth(alice.token, { type: 'bearer' }).expect(200);
+    expect(await allReadEvent).toHaveProperty('readAt');
+
+    const unread = await request(server).get('/api/v1/notifications?unreadOnly=1')
+      .auth(alice.token, { type: 'bearer' }).expect(200);
+    expect(data<{ total: number; unreadCount: number }>(unread)).toMatchObject({ total: 0, unreadCount: 0 });
+  });
+
+
+  it('disconnects every live socket immediately when moderation suspends an account', async () => {
+    const alice = await member('Alice');
+    const bob = await member('Bob');
+    const moderator = await admin('Moderator');
+    const bobSocket = await socketClient(bob.token);
+
+    const disconnected = new Promise<string>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('Timed out waiting for suspended socket disconnect')), 5_000);
+      bobSocket.once('disconnect', (reason) => {
+        clearTimeout(timeout);
+        resolve(reason);
+      });
+    });
+
+    const created = await request(server).post('/api/v1/reports')
+      .auth(alice.token, { type: 'bearer' })
+      .send({
+        targetType: 'user',
+        targetId: bob.user.id,
+        reason: 'harassment',
+        details: 'Moderation test',
+      })
+      .expect(201);
+    const reportId = data<{ report: { _id: string } }>(created).report._id;
+
+    await request(server).patch(`/api/v1/reports/${reportId}`)
+      .auth(moderator.token, { type: 'bearer' })
+      .send({ action: 'suspend_user' })
+      .expect(200);
+
+    expect(await disconnected).toBe('io server disconnect');
+    await request(server).get('/api/v1/chats').auth(bob.token, { type: 'bearer' }).expect(403);
+  });
+
 });

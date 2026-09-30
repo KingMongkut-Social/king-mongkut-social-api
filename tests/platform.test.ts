@@ -9,6 +9,8 @@ import { GroupMemberModel } from '../src/modules/groups/group-member.model.js';
 import { GroupPostModel } from '../src/modules/groups/group-post.model.js';
 import { NotificationModel } from '../src/modules/notifications/notification.model.js';
 import { PostLikeModel } from '../src/modules/posts/post-like.model.js';
+import { PostBookmarkModel } from '../src/modules/posts/post-bookmark.model.js';
+import { PostCommentModel } from '../src/modules/posts/post-comment.model.js';
 import { PostModel } from '../src/modules/posts/post.model.js';
 import { ReportModel } from '../src/modules/reports/report.model.js';
 import { UserModel } from '../src/modules/users/user.model.js';
@@ -43,6 +45,8 @@ beforeAll(async () => {
     UserModel.syncIndexes(),
     PostModel.syncIndexes(),
     PostLikeModel.syncIndexes(),
+    PostBookmarkModel.syncIndexes(),
+    PostCommentModel.syncIndexes(),
     NotificationModel.syncIndexes(),
     CommunityGroupModel.syncIndexes(),
     GroupMemberModel.syncIndexes(),
@@ -56,6 +60,8 @@ beforeEach(async () => {
     UserModel.deleteMany({}),
     PostModel.deleteMany({}),
     PostLikeModel.deleteMany({}),
+    PostBookmarkModel.deleteMany({}),
+    PostCommentModel.deleteMany({}),
     NotificationModel.deleteMany({}),
     CommunityGroupModel.deleteMany({}),
     GroupMemberModel.deleteMany({}),
@@ -160,8 +166,9 @@ describe('completed social platform APIs', () => {
       .send({ content: 'Hello community' })
       .expect(201);
     const publicPosts = await request(app).get(`/api/v1/groups/${publicGroup.id}/posts`).expect(200);
-    expect(data<{ items: Array<{ content: string }> }>(publicPosts).items)
-      .toEqual([expect.objectContaining({ content: 'Hello community' })]);
+    const publicItems = data<{ items: Array<{ id: string; content: string }> }>(publicPosts).items;
+    expect(publicItems).toEqual([expect.objectContaining({ content: 'Hello community' })]);
+    expect(publicItems[0]?.id).toMatch(/^[a-f\d]{24}$/i);
 
     const privateCreated = await request(app).post('/api/v1/groups')
       .auth(alice.token, { type: 'bearer' })
@@ -210,5 +217,217 @@ describe('completed social platform APIs', () => {
       .expect(200);
     expect((await UserModel.findById(alice.user.id).lean())?.isActive).toBe(false);
     expect((await ReportModel.findById(reportId).lean())?.status).toBe('resolved');
+  });
+
+  it('makes private groups fully manageable and keeps private memberships hidden from outsiders', async () => {
+    const alice = await member('Alice');
+    const bob = await member('Bob');
+    const carol = await member('Carol');
+
+    const created = await request(app).post('/api/v1/groups')
+      .auth(alice.token, { type: 'bearer' })
+      .send({ name: 'Private Research Lab', description: 'Members only', privacy: 'private' })
+      .expect(201);
+    const groupId = data<{ group: { id: string } }>(created).group.id;
+
+    await request(app).post(`/api/v1/groups/${groupId}/members`)
+      .auth(alice.token, { type: 'bearer' })
+      .send({ userId: bob.user.id })
+      .expect(201);
+    await request(app).post(`/api/v1/groups/${groupId}/members`)
+      .auth(alice.token, { type: 'bearer' })
+      .send({ userId: bob.user.id })
+      .expect(409);
+
+    await request(app).get(`/api/v1/groups/${groupId}`).auth(bob.token, { type: 'bearer' }).expect(200);
+    await request(app).post(`/api/v1/groups/${groupId}/posts`)
+      .auth(bob.token, { type: 'bearer' })
+      .send({ content: 'Private group post' })
+      .expect(201);
+
+    const selfGroups = await request(app).get(`/api/v1/groups/users/${bob.user.id}`)
+      .auth(bob.token, { type: 'bearer' }).expect(200);
+    expect(data<{ items: Array<{ id: string }> }>(selfGroups).items.map((item) => item.id)).toContain(groupId);
+
+    const outsiderView = await request(app).get(`/api/v1/groups/users/${bob.user.id}`)
+      .auth(carol.token, { type: 'bearer' }).expect(200);
+    expect(data<{ items: Array<{ id: string }> }>(outsiderView).items.map((item) => item.id)).not.toContain(groupId);
+
+    await request(app).patch(`/api/v1/groups/${groupId}/members/${bob.user.id}`)
+      .auth(alice.token, { type: 'bearer' })
+      .send({ role: 'owner' })
+      .expect(200);
+    await request(app).delete(`/api/v1/groups/${groupId}/join`)
+      .auth(alice.token, { type: 'bearer' })
+      .expect(200);
+
+    await request(app).delete(`/api/v1/groups/${groupId}`)
+      .auth(bob.token, { type: 'bearer' })
+      .expect(204);
+    await request(app).get(`/api/v1/groups/${groupId}`).auth(bob.token, { type: 'bearer' }).expect(404);
+    expect(await GroupMemberModel.countDocuments({ group: groupId })).toBe(0);
+    expect(await GroupPostModel.countDocuments({ group: groupId })).toBe(0);
+  });
+
+  it('allows group post authors and moderators to remove group posts with permission checks', async () => {
+    const alice = await member('Alice');
+    const bob = await member('Bob');
+    const carol = await member('Carol');
+    const created = await request(app).post('/api/v1/groups')
+      .auth(alice.token, { type: 'bearer' })
+      .send({ name: 'Builders', description: '', privacy: 'public' })
+      .expect(201);
+    const groupId = data<{ group: { id: string } }>(created).group.id;
+
+    await request(app).put(`/api/v1/groups/${groupId}/join`).auth(bob.token, { type: 'bearer' }).expect(200);
+    await request(app).put(`/api/v1/groups/${groupId}/join`).auth(carol.token, { type: 'bearer' }).expect(200);
+    const post = data<{ post: { id: string } }>(await request(app).post(`/api/v1/groups/${groupId}/posts`)
+      .auth(bob.token, { type: 'bearer' }).send({ content: 'Delete me' }).expect(201)).post;
+
+    await request(app).delete(`/api/v1/groups/${groupId}/posts/${post.id}`)
+      .auth(carol.token, { type: 'bearer' }).expect(403);
+    await request(app).patch(`/api/v1/groups/${groupId}/members/${carol.user.id}`)
+      .auth(alice.token, { type: 'bearer' }).send({ role: 'moderator' }).expect(200);
+    await request(app).delete(`/api/v1/groups/${groupId}/posts/${post.id}`)
+      .auth(carol.token, { type: 'bearer' }).expect(204);
+    expect(await GroupPostModel.exists({ _id: post.id })).toBeNull();
+  });
+
+  it('validates report targets, prevents duplicate pending reports, cleans content, and can restore a suspended user', async () => {
+    const alice = await member('Alice');
+    const bob = await member('Bob');
+    const admin = await member('Moderator', 'admin');
+
+    await request(app).post('/api/v1/reports')
+      .auth(bob.token, { type: 'bearer' })
+      .send({ targetType: 'post', targetId: new mongoose.Types.ObjectId().toHexString(), reason: 'spam', details: '' })
+      .expect(404);
+
+    const postCreated = await request(app).post('/api/v1/posts')
+      .auth(alice.token, { type: 'bearer' }).send({ content: 'Moderation cleanup' }).expect(201);
+    const postId = data<{ post: { _id: string } }>(postCreated).post._id;
+    await request(app).put(`/api/v1/posts/${postId}/reaction`)
+      .auth(bob.token, { type: 'bearer' }).send({ reaction: 'LIKE' }).expect(200);
+    await request(app).put(`/api/v1/posts/${postId}/bookmark`)
+      .auth(bob.token, { type: 'bearer' }).expect(200);
+    const commentCreated = await request(app).post(`/api/v1/posts/${postId}/comments`)
+      .auth(bob.token, { type: 'bearer' }).send({ content: 'Comment' }).expect(201);
+    expect(data<{ comment: { _id: string } }>(commentCreated).comment._id).toBeTruthy();
+
+    const reportPost = await request(app).post('/api/v1/reports')
+      .auth(bob.token, { type: 'bearer' })
+      .send({ targetType: 'post', targetId: postId, reason: 'inappropriate', details: '' })
+      .expect(201);
+    await request(app).post('/api/v1/reports')
+      .auth(bob.token, { type: 'bearer' })
+      .send({ targetType: 'post', targetId: postId, reason: 'spam', details: '' })
+      .expect(409);
+    const postReportId = data<{ report: { _id: string } }>(reportPost).report._id;
+    await request(app).patch(`/api/v1/reports/${postReportId}`)
+      .auth(admin.token, { type: 'bearer' }).send({ action: 'remove_content' }).expect(200);
+    expect(await PostModel.exists({ _id: postId })).toBeNull();
+    expect(await PostLikeModel.countDocuments({ post: postId })).toBe(0);
+    expect(await PostBookmarkModel.countDocuments({ post: postId })).toBe(0);
+    expect(await PostCommentModel.countDocuments({ post: postId })).toBe(0);
+
+    const userReport = await request(app).post('/api/v1/reports')
+      .auth(bob.token, { type: 'bearer' })
+      .send({ targetType: 'user', targetId: alice.user.id, reason: 'harassment', details: '' })
+      .expect(201);
+    const userReportId = data<{ report: { _id: string } }>(userReport).report._id;
+    await request(app).patch(`/api/v1/reports/${userReportId}`)
+      .auth(admin.token, { type: 'bearer' }).send({ action: 'suspend_user' }).expect(200);
+    expect((await UserModel.findById(alice.user.id).lean())?.isActive).toBe(false);
+    await request(app).get('/api/v1/posts/mine').auth(alice.token, { type: 'bearer' }).expect(403);
+
+    await request(app).patch(`/api/v1/reports/${userReportId}`)
+      .auth(admin.token, { type: 'bearer' }).send({ action: 'restore_user' }).expect(200);
+    expect((await UserModel.findById(alice.user.id).lean())?.isActive).toBe(true);
+  });
+
+  it('supports reporting and removing a community group post', async () => {
+    const alice = await member('Alice');
+    const bob = await member('Bob');
+    const admin = await member('Moderator', 'admin');
+    const group = data<{ group: { id: string } }>(await request(app).post('/api/v1/groups')
+      .auth(alice.token, { type: 'bearer' })
+      .send({ name: 'Reportable group', description: '', privacy: 'public' }).expect(201)).group;
+    await request(app).put(`/api/v1/groups/${group.id}/join`).auth(bob.token, { type: 'bearer' }).expect(200);
+    const groupPost = data<{ post: { id: string } }>(await request(app).post(`/api/v1/groups/${group.id}/posts`)
+      .auth(bob.token, { type: 'bearer' }).send({ content: 'Bad group post' }).expect(201)).post;
+
+    const report = await request(app).post('/api/v1/reports')
+      .auth(alice.token, { type: 'bearer' })
+      .send({ targetType: 'group_post', targetId: groupPost.id, reason: 'spam', details: '' })
+      .expect(201);
+    const reportId = data<{ report: { _id: string } }>(report).report._id;
+    await request(app).patch(`/api/v1/reports/${reportId}`)
+      .auth(admin.token, { type: 'bearer' }).send({ action: 'remove_content' }).expect(200);
+    expect(await GroupPostModel.exists({ _id: groupPost.id })).toBeNull();
+  });
+
+
+  it('sends join notifications to the current community owner after ownership transfer', async () => {
+    const alice = await member('Alice');
+    const bob = await member('Bob');
+    const carol = await member('Carol');
+
+    const created = await request(app).post('/api/v1/groups')
+      .auth(alice.token, { type: 'bearer' })
+      .send({ name: 'Ownership transfer', description: '', privacy: 'public' })
+      .expect(201);
+    const groupId = data<{ group: { id: string } }>(created).group.id;
+
+    await request(app).put(`/api/v1/groups/${groupId}/join`)
+      .auth(bob.token, { type: 'bearer' }).expect(200);
+    await request(app).patch(`/api/v1/groups/${groupId}/members/${bob.user.id}`)
+      .auth(alice.token, { type: 'bearer' })
+      .send({ role: 'owner' }).expect(200);
+
+    await NotificationModel.deleteMany({});
+    await request(app).put(`/api/v1/groups/${groupId}/join`)
+      .auth(carol.token, { type: 'bearer' }).expect(200);
+
+    const bobNotifications = await request(app).get('/api/v1/notifications')
+      .auth(bob.token, { type: 'bearer' }).expect(200);
+    expect(data<{ items: Array<{ type: string; entityId: string }> }>(bobNotifications).items)
+      .toEqual(expect.arrayContaining([expect.objectContaining({ type: 'group_join', entityId: groupId })]));
+
+    const aliceNotifications = await request(app).get('/api/v1/notifications')
+      .auth(alice.token, { type: 'bearer' }).expect(200);
+    expect(data<{ items: Array<{ type: string; entityId: string }> }>(aliceNotifications).items)
+      .not.toEqual(expect.arrayContaining([expect.objectContaining({ type: 'group_join', entityId: groupId })]));
+  });
+
+});
+
+
+describe('content lifecycle cleanup', () => {
+  it('resolves pending reports automatically when reported content is deleted', async () => {
+    const alice = await member('CleanupAlice');
+    const bob = await member('CleanupBob');
+    const post = data<{ post: { _id: string } }>(
+      await request(app).post('/api/v1/posts').auth(alice.token, { type: 'bearer' })
+        .send({ content: 'Delete me' }).expect(201),
+    ).post;
+    const comment = data<{ comment: { _id: string } }>(
+      await request(app).post(`/api/v1/posts/${post._id}/comments`).auth(bob.token, { type: 'bearer' })
+        .send({ content: 'Reported comment' }).expect(201),
+    ).comment;
+
+    await request(app).post('/api/v1/reports').auth(bob.token, { type: 'bearer' })
+      .send({ targetType: 'post', targetId: post._id, reason: 'spam', details: '' }).expect(201);
+    await request(app).post('/api/v1/reports').auth(alice.token, { type: 'bearer' })
+      .send({ targetType: 'comment', targetId: comment._id, reason: 'other', details: '' }).expect(201);
+
+    await request(app).delete(`/api/v1/posts/${post._id}`).auth(alice.token, { type: 'bearer' }).expect(204);
+
+    const stale = await ReportModel.find({
+      status: 'pending',
+      $or: [{ targetId: post._id }, { targetId: comment._id }],
+    }).lean();
+    expect(stale).toHaveLength(0);
+    const resolved = await ReportModel.find({ targetId: { $in: [post._id, comment._id] } }).lean();
+    expect(resolved.every((item) => item.status === 'resolved' && item.action === 'content_deleted')).toBe(true);
   });
 });
