@@ -44,6 +44,18 @@ export function emitMessageNew(
   }
 }
 
+export function emitTyping(
+  members: string[],
+  chatId: string,
+  userId: string,
+  isTyping: boolean,
+): void {
+  for (const memberId of members) {
+    if (memberId !== userId) {
+      io?.to(`user:${memberId}`).emit('chat:typing', { chatId, userId, isTyping });
+    }
+  }
+}
 
 export function emitToUser<T>(userId: string, event: string, payload: T): void {
   io?.to(`user:${userId}`).emit(event, payload);

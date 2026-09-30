@@ -1,5 +1,8 @@
+import { unlink } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import { Types } from 'mongoose';
 import { AppError } from '../../common/errors/app-error.js';
+import { env } from '../../config/env.js';
 import { FriendshipModel } from '../friends/friendship.model.js';
 import { UserModel } from '../users/user.model.js';
 import type { Role } from '../users/user.model.js';
@@ -7,7 +10,7 @@ import { PostBookmarkModel } from './post-bookmark.model.js';
 import { PostCommentModel } from './post-comment.model.js';
 import { PostLikeModel, type PostReaction } from './post-like.model.js';
 import { createNotification } from '../notifications/notification.service.js';
-import { PostModel, type PostAttachment } from './post.model.js';
+import { PostModel, type Post, type PostAttachment } from './post.model.js';
 import type { CreateCommentInput, CreatePostInput, ListCommentsQuery, ListPostsQuery, UpdatePostInput } from './post.schemas.js';
 
 type LeanPost = Record<string, unknown> & { _id: Types.ObjectId; user: unknown };
@@ -260,8 +263,50 @@ export async function updatePost(id: string, userId: string, role: Role, input: 
   return getPost(id, { userId, role });
 }
 
+function extractMediaUrl(item: unknown): string | null {
+  if (typeof item === 'string') return item;
+  if (typeof item === 'object' && item !== null && 'url' in item) {
+    const candidate = item.url;
+    if (typeof candidate === 'string') return candidate;
+  }
+  return null;
+}
+
+async function cleanupPostFiles(post: Post) {
+  const uploadPrefix = '/api/v1/posts/uploads/';
+  const urls: string[] = [];
+  if (post.coverImage) urls.push(post.coverImage);
+  if (Array.isArray(post.images)) urls.push(...post.images);
+  if (Array.isArray(post.attachments)) {
+    for (const attachment of post.attachments) {
+      if (attachment && typeof attachment.url === 'string') {
+        urls.push(attachment.url);
+      }
+    }
+  }
+  const rawPost = post as unknown as Record<string, unknown>;
+  const rawMedia = Array.isArray(rawPost.media) ? (rawPost.media as unknown[]) : [];
+  for (const item of rawMedia) {
+    const mediaUrl = extractMediaUrl(item);
+    if (mediaUrl) urls.push(mediaUrl);
+  }
+
+  const uploadDir = resolve(env.UPLOAD_DIR);
+  await Promise.all(
+    urls.map(async (url) => {
+      if (!url.startsWith(uploadPrefix)) return;
+      const filename = url.slice(uploadPrefix.length);
+      if (/^[a-f0-9-]{36}\.[a-z0-9]+$/i.test(filename)) {
+        const filePath = resolve(uploadDir, filename);
+        await unlink(filePath).catch(() => undefined);
+      }
+    }),
+  );
+}
+
 export async function deletePost(id: string, userId: string, role: Role) {
   const post = await getOwnedPost(id, userId, role);
+  await cleanupPostFiles(post.toObject());
   await post.deleteOne();
   await Promise.all([
     PostLikeModel.deleteMany({ post: post._id }),

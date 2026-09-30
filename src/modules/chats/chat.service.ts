@@ -4,7 +4,7 @@ import { FriendshipModel } from '../friends/friendship.model.js';
 import { UserModel } from '../users/user.model.js';
 import { ChatMessageModel } from './chat-message.model.js';
 import { ChatModel } from './chat.model.js';
-import { emitChatUpdated, emitMessageNew } from './chat.realtime.js';
+import { emitChatUpdated, emitMessageNew, emitTyping } from './chat.realtime.js';
 
 type ChatRecord = {
   _id: Types.ObjectId;
@@ -204,4 +204,12 @@ export async function sendMessage(userId: string, chatId: string, content: strin
   emitMessageNew(chat.members.map(String), serializedMessage);
   emitChatUpdated(serializedChat);
   return serializedMessage;
+}
+
+export async function handleTyping(userId: string, chatId: string, isTyping: boolean): Promise<void> {
+  const chat = await ChatModel.findById(chatId).select('members').lean();
+  if (!chat) return;
+  const isMember = chat.members.some((m) => String(m) === userId);
+  if (!isMember) return;
+  emitTyping(chat.members.map(String), chatId, userId, isTyping);
 }

@@ -8,7 +8,7 @@ import { verifyAccessToken } from '../auth/token.service.js';
 import { hasCompleteProfile } from '../users/user.model.js';
 import { emitPresenceUpdated, isUserOnline, setChatSocketServer } from './chat.realtime.js';
 import { socketSendSchema } from './chat.schemas.js';
-import { sendMessage } from './chat.service.js';
+import { handleTyping, sendMessage } from './chat.service.js';
 import { FriendshipModel } from '../friends/friendship.model.js';
 
 function socketError(error: unknown): { code: string; message: string } {
@@ -99,6 +99,17 @@ export function attachChatSocket(server: HttpServer): SocketServer {
         ack?.({ success: true, data: message });
       } catch (error) {
         ack?.({ success: false, error: socketError(error) });
+      }
+    });
+    socket.on('chat:typing', async (payload: unknown) => {
+      try {
+        if (!payload || typeof payload !== 'object') return;
+        const { chatId, isTyping } = payload as { chatId?: unknown; isTyping?: unknown };
+        if (typeof chatId === 'string' && typeof isTyping === 'boolean') {
+          await handleTyping(userId, chatId, isTyping);
+        }
+      } catch {
+        // Silently ignore typing error
       }
     });
   });
