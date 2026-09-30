@@ -178,13 +178,17 @@ export async function joinGroup(id: string, userId: string) {
     { $setOnInsert: { group: id, user: userId, role: 'member' } },
     { upsert: true },
   );
-  if (result.upsertedCount > 0 && String(group.creator) !== userId) {
-    await createNotification({
-      recipientId: String(group.creator),
-      actorId: userId,
-      type: 'group_join',
-      entityId: id,
-    });
+  if (result.upsertedCount > 0) {
+    const owner = await GroupMemberModel.findOne({ group: id, role: 'owner' }).select('user').lean();
+    const recipientId = owner ? String(owner.user) : String(group.creator);
+    if (recipientId !== userId) {
+      await createNotification({
+        recipientId,
+        actorId: userId,
+        type: 'group_join',
+        entityId: id,
+      });
+    }
   }
   return getGroup(id, userId);
 }

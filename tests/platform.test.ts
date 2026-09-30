@@ -366,4 +366,37 @@ describe('completed social platform APIs', () => {
     expect(await GroupPostModel.exists({ _id: groupPost.id })).toBeNull();
   });
 
+
+  it('sends join notifications to the current community owner after ownership transfer', async () => {
+    const alice = await member('Alice');
+    const bob = await member('Bob');
+    const carol = await member('Carol');
+
+    const created = await request(app).post('/api/v1/groups')
+      .auth(alice.token, { type: 'bearer' })
+      .send({ name: 'Ownership transfer', description: '', privacy: 'public' })
+      .expect(201);
+    const groupId = data<{ group: { id: string } }>(created).group.id;
+
+    await request(app).put(`/api/v1/groups/${groupId}/join`)
+      .auth(bob.token, { type: 'bearer' }).expect(200);
+    await request(app).patch(`/api/v1/groups/${groupId}/members/${bob.user.id}`)
+      .auth(alice.token, { type: 'bearer' })
+      .send({ role: 'owner' }).expect(200);
+
+    await NotificationModel.deleteMany({});
+    await request(app).put(`/api/v1/groups/${groupId}/join`)
+      .auth(carol.token, { type: 'bearer' }).expect(200);
+
+    const bobNotifications = await request(app).get('/api/v1/notifications')
+      .auth(bob.token, { type: 'bearer' }).expect(200);
+    expect(data<{ items: Array<{ type: string; entityId: string }> }>(bobNotifications).items)
+      .toEqual(expect.arrayContaining([expect.objectContaining({ type: 'group_join', entityId: groupId })]));
+
+    const aliceNotifications = await request(app).get('/api/v1/notifications')
+      .auth(alice.token, { type: 'bearer' }).expect(200);
+    expect(data<{ items: Array<{ type: string; entityId: string }> }>(aliceNotifications).items)
+      .not.toEqual(expect.arrayContaining([expect.objectContaining({ type: 'group_join', entityId: groupId })]));
+  });
+
 });
