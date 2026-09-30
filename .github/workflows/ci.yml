@@ -57,3 +57,4 @@ jobs:
           done
           curl --fail --silent http://127.0.0.1:4000/health
           curl --fail --silent http://127.0.0.1:4000/ready
+          docker exec kms-api-ci node dist/scripts/sync-indexes.js
