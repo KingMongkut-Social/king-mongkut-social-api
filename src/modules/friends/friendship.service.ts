@@ -2,6 +2,7 @@ import { Types } from 'mongoose';
 import { AppError } from '../../common/errors/app-error.js';
 import { UserModel, type University } from '../users/user.model.js';
 import { isUserOnline } from '../chats/chat.realtime.js';
+import { createNotification } from '../notifications/notification.service.js';
 import { FriendshipModel } from './friendship.model.js';
 
 function escapeRegex(value: string): string {
@@ -296,10 +297,27 @@ export async function sendFriendRequest(requesterId: string, recipientId: string
         { $set: { requester: requesterId, recipient: recipientId, pairKey: key, status: 'pending' } },
         { returnDocument: 'after', runValidators: true },
       );
-      if (restarted) return restarted;
+      if (restarted) {
+        await createNotification({
+          recipientId,
+          actorId: requesterId,
+          type: 'friend_request',
+          entityId: String(restarted._id),
+        });
+        return restarted;
+      }
       throw new AppError(409, 'REQUEST_PENDING', 'Friend request already exists');
     }
-    return await FriendshipModel.create({ requester: requesterId, recipient: recipientId, pairKey: key, status: 'pending' });
+    const created = await FriendshipModel.create({
+      requester: requesterId, recipient: recipientId, pairKey: key, status: 'pending',
+    });
+    await createNotification({
+      recipientId,
+      actorId: requesterId,
+      type: 'friend_request',
+      entityId: String(created._id),
+    });
+    return created;
   } catch (error) {
     if (error instanceof Error && 'code' in error && error.code === 11000) {
       const winner = await FriendshipModel.findOne({ pairKey: key });
@@ -315,7 +333,17 @@ export async function respondFriendRequest(recipientId: string, requestId: strin
     { $set: { status: action === 'accept' ? 'accepted' : 'rejected' } },
     { returnDocument: 'after', runValidators: true },
   );
-  if (request) return request;
+  if (request) {
+    if (action === 'accept') {
+      await createNotification({
+        recipientId: String(request.requester),
+        actorId: recipientId,
+        type: 'friend_accept',
+        entityId: String(request._id),
+      });
+    }
+    return request;
+  }
   const existing = await FriendshipModel.findById(requestId);
   if (!existing) throw new AppError(404, 'REQUEST_NOT_FOUND', 'Friend request not found');
   if (String(existing.recipient) !== recipientId) throw new AppError(403, 'FORBIDDEN', 'Cannot respond to this request');

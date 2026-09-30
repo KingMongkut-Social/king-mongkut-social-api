@@ -192,6 +192,26 @@ export async function listPublishedByUser(
   return pageResult(await enrichPosts(items as unknown as LeanPost[], viewerId), query.page, query.limit, total);
 }
 
+export async function listPublishedByUniversity(
+  university: 'KMITL' | 'KMUTNB' | 'KMUTT',
+  query: ListPostsQuery,
+  viewerId?: string,
+) {
+  const users = await UserModel.find({ university, isActive: true }).select('_id').lean();
+  const filter: Record<string, unknown> = {
+    user: { $in: users.map((user) => user._id) },
+    status: 'published',
+    ...searchFilter(query),
+  };
+  const skip = (query.page - 1) * query.limit;
+  const [items, total] = await Promise.all([
+    PostModel.find(filter).sort({ publishedAt: -1, createdAt: -1 })
+      .skip(skip).limit(query.limit).populate('user', 'name username avatarUrl university faculty department').lean(),
+    PostModel.countDocuments(filter),
+  ]);
+  return pageResult(await enrichPosts(items as unknown as LeanPost[], viewerId), query.page, query.limit, total);
+}
+
 export async function listMine(userId: string, query: ListPostsQuery) {
   const filter = { user: new Types.ObjectId(userId), ...(query.status ? { status: query.status } : {}), ...searchFilter(query) };
   const skip = (query.page - 1) * query.limit;
@@ -328,7 +348,29 @@ export async function addComment(id: string, userId: string, input: CreateCommen
     content: input.content,
     parentId,
   });
-  return PostCommentModel.findById(comment.id).populate('author', 'name username avatarUrl university faculty department').lean();
+  const populated = await PostCommentModel.findById(comment.id)
+    .populate('author', 'name username avatarUrl university faculty department').lean();
+
+  let recipientId = '';
+  let notificationType: 'post_comment' | 'comment_reply' = 'post_comment';
+  if (parentId) {
+    const parent = await PostCommentModel.findById(parentId).select('author').lean();
+    if (parent) recipientId = String(parent.author);
+    notificationType = 'comment_reply';
+  } else {
+    const post = await PostModel.findById(id).select('user').lean();
+    if (post) recipientId = String(post.user);
+  }
+  if (recipientId && recipientId !== userId) {
+    await createNotification({
+      recipientId,
+      actorId: userId,
+      type: notificationType,
+      entityId: id,
+      content: input.content.slice(0, 160),
+    });
+  }
+  return populated;
 }
 
 export async function deleteComment(postId: string, commentId: string, userId: string, role: Role) {
