@@ -1,6 +1,9 @@
 import mongoose from 'mongoose';
 import { MongoMemoryServer } from 'mongodb-memory-server';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { SessionModel } from '../src/modules/auth/session.model.js';
+import { GroupMemberModel } from '../src/modules/groups/group-member.model.js';
+import { PostLikeModel } from '../src/modules/posts/post-like.model.js';
 import { indexModels } from '../src/scripts/index-models.js';
 
 let database: MongoMemoryServer;
@@ -38,13 +41,13 @@ describe('production MongoDB index registry', () => {
 
     await Promise.all(indexModels.map((model) => model.syncIndexes()));
 
-    const sessionIndexes = await mongoose.connection.collection('sessions').indexes();
+    const sessionIndexes = await SessionModel.collection.indexes();
     expect(sessionIndexes.some((index) => index.expireAfterSeconds === 0)).toBe(true);
 
-    const membershipIndexes = await mongoose.connection.collection('community_group_members').indexes();
+    const membershipIndexes = await GroupMemberModel.collection.indexes();
     expect(membershipIndexes.some((index) => index.unique === true && index.key.group === 1 && index.key.user === 1)).toBe(true);
 
-    const reactionIndexes = await mongoose.connection.collection('post_likes').indexes();
+    const reactionIndexes = await PostLikeModel.collection.indexes();
     expect(reactionIndexes.some((index) => index.unique === true && index.key.post === 1 && index.key.user === 1)).toBe(true);
   });
 });
