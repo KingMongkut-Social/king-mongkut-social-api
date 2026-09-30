@@ -21,5 +21,6 @@ router.get('/users/:userId', validate({ params: targetUserParamsSchema }), async
 router.post('/request', validate({ body: sendRequestSchema }), asyncHandler(friendController.sendRequest));
 router.post('/respond', validate({ body: respondRequestSchema }), asyncHandler(friendController.respondRequest));
 router.delete('/requests/:requestId', validate({ params: requestParamsSchema }), asyncHandler(friendController.cancelRequest));
+router.delete('/:requestId', validate({ params: requestParamsSchema }), asyncHandler(friendController.removeFriend));
 
 export const friendshipRoutes = router;
