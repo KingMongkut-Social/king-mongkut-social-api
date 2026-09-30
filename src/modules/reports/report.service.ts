@@ -1,5 +1,8 @@
+import { Types } from 'mongoose';
 import { AppError } from '../../common/errors/app-error.js';
 import { CommunityGroupModel } from '../groups/group.model.js';
+import { GroupMemberModel } from '../groups/group-member.model.js';
+import { GroupPostModel } from '../groups/group-post.model.js';
 import { PostCommentModel } from '../posts/post-comment.model.js';
 import { PostModel } from '../posts/post.model.js';
 import { UserModel } from '../users/user.model.js';
@@ -46,7 +49,13 @@ export async function moderate(
   if (action === 'remove_content') {
     if (report.targetType === 'post') await PostModel.deleteOne({ _id: report.targetId });
     else if (report.targetType === 'comment') await PostCommentModel.deleteOne({ _id: report.targetId });
-    else if (report.targetType === 'group') await CommunityGroupModel.deleteOne({ _id: report.targetId });
+    else if (report.targetType === 'group') {
+      await Promise.all([
+        CommunityGroupModel.deleteOne({ _id: report.targetId }),
+        GroupMemberModel.deleteMany({ group: report.targetId }),
+        GroupPostModel.deleteMany({ group: report.targetId }),
+      ]);
+    }
     else throw new AppError(422, 'INVALID_MODERATION_ACTION', 'Cannot remove this target as content');
   } else if (action === 'suspend_user' || action === 'restore_user') {
     if (report.targetType !== 'user') {
@@ -61,7 +70,7 @@ export async function moderate(
   report.status = action === 'dismiss' ? 'dismissed' : 'resolved';
   report.action = action;
   report.note = note ?? null;
-  report.moderatedBy = moderatorId as never;
+  report.moderatedBy = new Types.ObjectId(moderatorId);
   report.moderatedAt = new Date();
   await report.save();
   return report;

@@ -41,6 +41,7 @@ export async function members(req: Request, res: Response) {
       String(req.params.id),
       Number(req.query.page ?? 1),
       Number(req.query.limit ?? 20),
+      req.auth?.userId,
     ),
   });
 }
@@ -51,6 +52,7 @@ export async function posts(req: Request, res: Response) {
       String(req.params.id),
       Number(req.query.page ?? 1),
       Number(req.query.limit ?? 20),
+      req.auth?.userId,
     ),
   });
 }

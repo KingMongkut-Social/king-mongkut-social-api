@@ -16,11 +16,13 @@ groupRouter.put('/:id/join', authenticate, requireCompleteProfile, validate({ pa
 groupRouter.delete('/:id/join', authenticate, requireCompleteProfile, validate({ params: groupParamsSchema }), asyncHandler(controller.leave));
 groupRouter.get(
   '/:id/members',
+  optionalAuthenticate,
   validate({ params: groupParamsSchema, query: groupListQuerySchema.pick({ page: true, limit: true }) }),
   asyncHandler(controller.members),
 );
 groupRouter.get(
   '/:id/posts',
+  optionalAuthenticate,
   validate({ params: groupParamsSchema, query: groupListQuerySchema.pick({ page: true, limit: true }) }),
   asyncHandler(controller.posts),
 );

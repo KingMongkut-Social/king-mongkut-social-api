@@ -3,12 +3,25 @@ import { emitToUser } from '../chats/chat.realtime.js';
 import { UserModel } from '../users/user.model.js';
 import { NotificationModel, type NotificationType } from './notification.model.js';
 
-function serialize(item: any) {
-  const actor = item.actor;
+type NotificationView = {
+  _id: unknown;
+  recipient: unknown;
+  actor: unknown;
+  type: NotificationType;
+  entityId?: string | null;
+  content?: string | null;
+  readAt?: Date | null;
+  createdAt: Date;
+};
+
+function serialize(item: NotificationView) {
+  const actor = item.actor && typeof item.actor === 'object'
+    ? item.actor as { _id?: unknown; name?: string; avatarUrl?: string | null; university?: string }
+    : null;
   return {
     id: String(item._id),
     recipientId: String(item.recipient),
-    actor: actor && actor._id ? {
+    actor: actor?._id ? {
       id: String(actor._id),
       name: actor.name ?? 'ผู้ใช้',
       avatarUrl: actor.avatarUrl ?? null,
@@ -48,7 +61,7 @@ export async function createNotification(input: {
     .populate('actor', 'name avatarUrl university').lean();
   if (!populated) return null;
 
-  const payload = serialize(populated);
+  const payload = serialize(populated as unknown as NotificationView);
   emitToUser(input.recipientId, 'notification:new', payload);
   return payload;
 }
@@ -62,7 +75,7 @@ export async function listNotifications(userId: string, page: number, limit: num
     NotificationModel.countDocuments({ recipient: userId, readAt: null }),
   ]);
   return {
-    items: items.map(serialize),
+    items: items.map((item) => serialize(item as unknown as NotificationView)),
     page,
     limit,
     total,
@@ -78,7 +91,7 @@ export async function markRead(userId: string, notificationId: string) {
     { returnDocument: 'after' },
   ).populate('actor', 'name avatarUrl university').lean();
   if (!item) throw new AppError(404, 'NOTIFICATION_NOT_FOUND', 'Notification not found');
-  const payload = serialize(item);
+  const payload = serialize(item as unknown as NotificationView);
   emitToUser(userId, 'notification:read', { id: notificationId });
   return payload;
 }

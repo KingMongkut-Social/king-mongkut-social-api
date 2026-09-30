@@ -8,15 +8,27 @@ function escapeRegex(value: string) {
   return value.replace(/[.*+?^$()|[\]\\]/g, '\\$&');
 }
 
-async function serializeGroup(group: any, viewerId?: string) {
+type GroupView = {
+  _id: unknown;
+  name: string;
+  description: string;
+  coverUrl?: string | null;
+  privacy: 'public' | 'private';
+  university?: 'KMITL' | 'KMUTT' | 'KMUTNB' | null;
+  creator: unknown;
+  createdAt: Date;
+};
+
+async function serializeGroup(group: GroupView, viewerId?: string) {
+  const groupId = String(group._id);
   const [memberCount, membership] = await Promise.all([
-    GroupMemberModel.countDocuments({ group: group._id }),
+    GroupMemberModel.countDocuments({ group: groupId }),
     viewerId
-      ? GroupMemberModel.findOne({ group: group._id, user: viewerId }).select('role').lean()
+      ? GroupMemberModel.findOne({ group: groupId, user: viewerId }).select('role').lean()
       : null,
   ]);
   return {
-    id: String(group._id),
+    id: groupId,
     name: group.name,
     description: group.description,
     coverUrl: group.coverUrl ?? null,
@@ -28,6 +40,16 @@ async function serializeGroup(group: any, viewerId?: string) {
     joined: Boolean(membership),
     createdAt: group.createdAt,
   };
+}
+
+async function requireReadableGroup(id: string, viewerId?: string) {
+  const group = await CommunityGroupModel.findById(id).lean();
+  if (!group) throw new AppError(404, 'GROUP_NOT_FOUND', 'Group not found');
+  if (group.privacy === 'private') {
+    const membership = viewerId ? await GroupMemberModel.exists({ group: id, user: viewerId }) : null;
+    if (!membership) throw new AppError(404, 'GROUP_NOT_FOUND', 'Group not found');
+  }
+  return group;
 }
 
 export async function listGroups(
@@ -47,7 +69,7 @@ export async function listGroups(
     CommunityGroupModel.countDocuments(filter),
   ]);
   return {
-    items: await Promise.all(groups.map((group) => serializeGroup(group, viewerId))),
+    items: await Promise.all(groups.map((group) => serializeGroup(group as unknown as GroupView, viewerId))),
     page: query.page,
     limit: query.limit,
     total,
@@ -64,11 +86,18 @@ export async function createGroup(
     university?: 'KMITL' | 'KMUTT' | 'KMUTNB' | null;
   },
 ) {
-  const group = await CommunityGroupModel.create({ ...input, creator: userId });
+  const group = await CommunityGroupModel.create({
+    name: input.name,
+    description: input.description,
+    privacy: input.privacy,
+    creator: userId,
+    ...(input.university ? { university: input.university } : {}),
+  });
   await GroupMemberModel.create({ group: group._id, user: userId, role: 'owner' });
   const populated = await CommunityGroupModel.findById(group._id)
     .populate('creator', 'name username avatarUrl university').lean();
-  return serializeGroup(populated, userId);
+  if (!populated) throw new AppError(404, 'GROUP_NOT_FOUND', 'Group not found');
+  return serializeGroup(populated as unknown as GroupView, userId);
 }
 
 export async function getGroup(id: string, viewerId?: string) {
@@ -79,7 +108,7 @@ export async function getGroup(id: string, viewerId?: string) {
     const membership = viewerId ? await GroupMemberModel.exists({ group: id, user: viewerId }) : null;
     if (!membership) throw new AppError(404, 'GROUP_NOT_FOUND', 'Group not found');
   }
-  return serializeGroup(group, viewerId);
+  return serializeGroup(group as unknown as GroupView, viewerId);
 }
 
 export async function joinGroup(id: string, userId: string) {
@@ -114,10 +143,8 @@ export async function leaveGroup(id: string, userId: string) {
   return { left: true };
 }
 
-export async function listMembers(id: string, page: number, limit: number) {
-  if (!await CommunityGroupModel.exists({ _id: id })) {
-    throw new AppError(404, 'GROUP_NOT_FOUND', 'Group not found');
-  }
+export async function listMembers(id: string, page: number, limit: number, viewerId?: string) {
+  await requireReadableGroup(id, viewerId);
   const [members, total] = await Promise.all([
     GroupMemberModel.find({ group: id }).sort({ createdAt: 1 })
       .skip((page - 1) * limit).limit(limit)
@@ -138,10 +165,8 @@ export async function listMembers(id: string, page: number, limit: number) {
   };
 }
 
-export async function listPosts(id: string, page: number, limit: number) {
-  if (!await CommunityGroupModel.exists({ _id: id })) {
-    throw new AppError(404, 'GROUP_NOT_FOUND', 'Group not found');
-  }
+export async function listPosts(id: string, page: number, limit: number, viewerId?: string) {
+  await requireReadableGroup(id, viewerId);
   const [posts, total] = await Promise.all([
     GroupPostModel.find({ group: id }).sort({ createdAt: -1 })
       .skip((page - 1) * limit).limit(limit)
