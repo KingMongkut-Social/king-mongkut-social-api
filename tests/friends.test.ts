@@ -103,6 +103,17 @@ describe('friend requests', () => {
     expect(data<PublicUser[]>(friends)).toHaveLength(1);
     await request(app).post('/api/v1/friends/request')
       .auth(alice.token, { type: 'bearer' }).send({ targetUserId: bob.user.id }).expect(409);
+
+    await request(app).delete(`/api/v1/friends/${requestId}`)
+      .auth(eve.token, { type: 'bearer' }).expect(403);
+    const removed = await request(app).delete(`/api/v1/friends/${requestId}`)
+      .auth(alice.token, { type: 'bearer' }).expect(200);
+    expect(data<FriendshipData>(removed).status).toBe('rejected');
+    const afterRemoval = await request(app).get('/api/v1/friends')
+      .auth(alice.token, { type: 'bearer' }).expect(200);
+    expect(data<PublicUser[]>(afterRemoval)).toEqual([]);
+    await request(app).post('/api/v1/friends/request')
+      .auth(bob.token, { type: 'bearer' }).send({ targetUserId: alice.user.id }).expect(201);
   });
 
   it('lets a rejected request be sent again', async () => {
