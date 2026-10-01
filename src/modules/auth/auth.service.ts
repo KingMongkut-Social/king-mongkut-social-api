@@ -45,15 +45,24 @@ async function findOrLinkGoogleUser(identity: GoogleIdentity) {
     const linked = await UserModel.findOneAndUpdate({
       _id: byEmail._id, isActive: true,
       $or: [{ googleSub: { $exists: false } }, { googleSub: null }, { googleSub: identity.sub }],
-    }, { $set: { googleSub: identity.sub, emailVerified: true, university: identity.university } },
+    }, { $set: {
+      googleSub: identity.sub,
+      emailVerified: true,
+      university: identity.university,
+      ...(byEmail.googleSub ? {} : { profileSetupRequired: true }),
+    } },
     { returnDocument: 'after', runValidators: true }).select('+googleSub');
     if (!linked) conflict();
     return linked;
   }
 
   return UserModel.create({
-    googleSub: identity.sub, email: identity.email, name: identity.name,
-    university: identity.university, emailVerified: true,
+    googleSub: identity.sub,
+    email: identity.email,
+    name: identity.name,
+    university: identity.university,
+    emailVerified: true,
+    profileSetupRequired: true,
   });
 }
 
@@ -82,10 +91,61 @@ export async function currentUser(userId: string) {
 }
 
 export async function updateProfile(userId: string, input: ProfileInput) {
-  await currentUser(userId);
-  const user = await UserModel.findOneAndUpdate({ _id: userId, isActive: true },
-    { $set: { faculty: input.faculty, department: input.department } }, { returnDocument: 'after', runValidators: true });
-  if (!user) throw new AppError(403, 'ACCOUNT_INACTIVE', 'Your account has been deactivated');
+  const user = await currentUser(userId);
+
+  if (user.profileSetupRequired === true) {
+    const name = input.name?.trim() ?? user.name.trim();
+    const username = input.username?.trim().toLowerCase() ?? user.username?.trim().toLowerCase() ?? '';
+    const bio = input.bio?.trim() ?? user.bio.trim();
+    const faculty = input.faculty?.trim() ?? user.faculty?.trim() ?? '';
+    const department = input.department?.trim() ?? user.department?.trim() ?? '';
+    const academicYear = input.academicYear ?? user.academicYear ?? null;
+
+    const missing = [
+      !name ? 'ชื่อที่แสดง' : '',
+      !username ? 'Username' : '',
+      !bio ? 'Bio' : '',
+      !faculty ? 'คณะ' : '',
+      !department ? 'ภาควิชา' : '',
+      academicYear == null ? 'ชั้นปี' : '',
+      !user.avatarUrl ? 'รูปโปรไฟล์' : '',
+      !user.coverUrl ? 'รูปหน้าปก' : '',
+    ].filter(Boolean);
+
+    if (missing.length) {
+      throw new AppError(
+        422,
+        'PROFILE_SETUP_REQUIRED',
+        `กรุณากรอกข้อมูลให้ครบ: ${missing.join(', ')}`,
+      );
+    }
+
+    user.name = name;
+    user.username = username;
+    user.bio = bio;
+    user.faculty = faculty;
+    user.department = department;
+    user.academicYear = academicYear;
+    user.profileSetupRequired = false;
+
+    try {
+      await user.save();
+    } catch (error) {
+      if (error instanceof Error && 'code' in error && error.code === 11000) {
+        throw new AppError(409, 'USERNAME_TAKEN', 'Username นี้ถูกใช้งานแล้ว');
+      }
+      throw error;
+    }
+    return user;
+  }
+
+  if (!input.faculty?.trim() || !input.department?.trim()) {
+    throw new AppError(422, 'PROFILE_INCOMPLETE', 'กรุณากรอกคณะและภาควิชา');
+  }
+
+  user.faculty = input.faculty.trim();
+  user.department = input.department.trim();
+  await user.save();
   return user;
 }
 
