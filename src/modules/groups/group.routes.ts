@@ -5,7 +5,17 @@ import { requireCompleteProfile } from '../../common/middleware/require-complete
 import { validate } from '../../common/middleware/validate.js';
 import { asyncHandler } from '../../common/utils/async-handler.js';
 import * as controller from './group.controller.js';
-import { createGroupInviteSchema, createGroupPostSchema, createGroupSchema, groupInviteParamsSchema, groupListQuerySchema, groupParamsSchema, respondGroupInviteSchema } from './group.schemas.js';
+import {
+  createGroupInviteSchema,
+  createGroupPostSchema,
+  createGroupSchema,
+  groupInviteParamsSchema,
+  groupListQuerySchema,
+  groupMembersQuerySchema,
+  groupParamsSchema,
+  respondGroupInviteSchema,
+  updateGroupSchema,
+} from './group.schemas.js';
 
 export const groupRouter = Router();
 
@@ -15,13 +25,14 @@ groupRouter.get('/mine', authenticate, requireCompleteProfile, validate({ query:
 groupRouter.get('/invitations', authenticate, requireCompleteProfile, asyncHandler(controller.invitations));
 groupRouter.patch('/invitations/:inviteId', authenticate, requireCompleteProfile, validate({ params: groupInviteParamsSchema, body: respondGroupInviteSchema }), asyncHandler(controller.respondInvitation));
 groupRouter.get('/:id', optionalAuthenticate, validate({ params: groupParamsSchema }), asyncHandler(controller.get));
+groupRouter.patch('/:id', authenticate, requireCompleteProfile, validate({ params: groupParamsSchema, body: updateGroupSchema }), asyncHandler(controller.update));
 groupRouter.put('/:id/join', authenticate, requireCompleteProfile, validate({ params: groupParamsSchema }), asyncHandler(controller.join));
 groupRouter.delete('/:id/join', authenticate, requireCompleteProfile, validate({ params: groupParamsSchema }), asyncHandler(controller.leave));
 groupRouter.post('/:id/invites', authenticate, requireCompleteProfile, validate({ params: groupParamsSchema, body: createGroupInviteSchema }), asyncHandler(controller.invite));
 groupRouter.get(
   '/:id/members',
   optionalAuthenticate,
-  validate({ params: groupParamsSchema, query: groupListQuerySchema.pick({ page: true, limit: true }) }),
+  validate({ params: groupParamsSchema, query: groupMembersQuerySchema }),
   asyncHandler(controller.members),
 );
 groupRouter.get(
