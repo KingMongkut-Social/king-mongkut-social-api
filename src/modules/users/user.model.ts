@@ -15,6 +15,7 @@ export interface User {
   googleSub?: string;
   faculty?: string;
   department?: string;
+  profileSetupRequired?: boolean;
   university: University;
   role: Role;
   isActive: boolean;
@@ -60,6 +61,7 @@ const userSchema = new Schema<User>(
     googleSub: { type: String, select: false },
     faculty: { type: String, trim: true, maxlength: 150 },
     department: { type: String, trim: true, maxlength: 150 },
+    profileSetupRequired: { type: Boolean, default: false },
     university: {
       type: String,
       enum: ['KMITL', 'KMUTNB', 'KMUTT'],
@@ -91,6 +93,7 @@ const userSchema = new Schema<User>(
         const output: Record<string, unknown> = { ...ret };
         delete output.passwordHash;
         delete output.googleSub;
+        delete output.profileSetupRequired;
         output.needsProfileCompletion = !hasCompleteProfile(ret);
         return output;
       },
@@ -101,7 +104,12 @@ const userSchema = new Schema<User>(
 userSchema.index({ googleSub: 1 }, { unique: true, partialFilterExpression: { googleSub: { $type: 'string' } } });
 userSchema.index({ username: 1 }, { unique: true, partialFilterExpression: { username: { $type: 'string' } } });
 
-export function hasCompleteProfile(user: { faculty?: string | null; department?: string | null }): boolean {
+export function hasCompleteProfile(user: {
+  faculty?: string | null;
+  department?: string | null;
+  profileSetupRequired?: boolean | null;
+}): boolean {
+  if (user.profileSetupRequired === true) return false;
   return Boolean(user.faculty?.trim() && user.department?.trim());
 }
 
