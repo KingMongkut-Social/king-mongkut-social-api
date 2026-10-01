@@ -266,6 +266,77 @@ describe('OAuth and session lifecycle', () => {
   });
 });
 
+describe('first-login required profile setup', () => {
+  it('forces new Google accounts to complete every onboarding field before member access', async () => {
+    const login = await googleLogin({
+      sub: 'first-login-required',
+      email: 'firstlogin@kmitl.ac.th',
+      name: 'First Login',
+      university: 'KMITL',
+    });
+
+    expect(login.user.toJSON()).toMatchObject({ needsProfileCompletion: true });
+
+    await request(app).get('/api/v1/posts/mine')
+      .auth(login.tokens.accessToken, { type: 'bearer' })
+      .expect(403);
+
+    const incomplete = await request(app).patch('/api/v1/auth/profile')
+      .auth(login.tokens.accessToken, { type: 'bearer' })
+      .send({
+        name: 'First Login',
+        username: 'first.login',
+        bio: 'Computer engineering student',
+        faculty: 'Engineering',
+        department: 'Computer Engineering',
+        academicYear: 2,
+      })
+      .expect(422);
+    expect(errorPayload.parse(incomplete.body).error.code).toBe('PROFILE_SETUP_REQUIRED');
+
+    await UserModel.updateOne(
+      { _id: login.user._id },
+      {
+        $set: {
+          avatarUrl: '/api/v1/users/uploads/11111111-1111-4111-8111-111111111111.png',
+          coverUrl: '/api/v1/users/uploads/22222222-2222-4222-8222-222222222222.png',
+        },
+      },
+    );
+
+    const completed = await request(app).patch('/api/v1/auth/profile')
+      .auth(login.tokens.accessToken, { type: 'bearer' })
+      .send({
+        name: ' First Login ',
+        username: 'First.Login',
+        bio: ' Computer engineering student ',
+        faculty: ' Engineering ',
+        department: ' Computer Engineering ',
+        academicYear: 2,
+      })
+      .expect(200);
+
+    expect(completed.body).toMatchObject({
+      data: {
+        user: {
+          name: 'First Login',
+          username: 'first.login',
+          bio: 'Computer engineering student',
+          faculty: 'Engineering',
+          department: 'Computer Engineering',
+          academicYear: 2,
+          needsProfileCompletion: false,
+        },
+      },
+    });
+    expect(completed.body.data.user).not.toHaveProperty('profileSetupRequired');
+
+    await request(app).get('/api/v1/posts/mine')
+      .auth(login.tokens.accessToken, { type: 'bearer' })
+      .expect(200);
+  });
+});
+
 describe('persisted profile gate', () => {
   it('does not let incomplete profiles use optional auth to access drafts', async () => {
     const { user } = await member();
