@@ -299,8 +299,10 @@ describe('completed social platform APIs', () => {
     const members = await request(app).get(`/api/v1/groups/${groupId}/members`)
       .query({ q: 'Bob', page: 1, limit: 8 })
       .expect(200);
-    expect(data<{ items: Array<{ user: { name: string } }>; total: number }>(members))
-      .toMatchObject({ total: 1, items: [expect.objectContaining({ user: expect.objectContaining({ name: 'Bob' }) })] });
+    const memberData = data<{ items: Array<{ user: { name: string } }>; total: number }>(members);
+    expect(memberData.total).toBe(1);
+    expect(memberData.items).toHaveLength(1);
+    expect(memberData.items[0]?.user.name).toBe('Bob');
 
     const posted = await request(app).post(`/api/v1/groups/${groupId}/posts`)
       .auth(alice.token, { type: 'bearer' })
