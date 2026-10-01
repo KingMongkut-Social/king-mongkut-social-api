@@ -21,12 +21,20 @@ const chatImageSchema = z.object({
   size: z.number().int().positive().max(10 * 1024 * 1024),
 });
 
-const messagePayloadSchema = z.object({
+const chatMessageFields = {
   content: z.string().trim().max(4000).default(''),
   image: chatImageSchema.nullable().optional(),
-}).refine((value) => value.content.length > 0 || Boolean(value.image), {
-  message: 'Message must contain text or an image',
-});
+} as const;
 
-export const sendMessageSchema = messagePayloadSchema;
-export const socketSendSchema = messagePayloadSchema.extend({ chatId: objectIdSchema });
+export const sendMessageSchema = z.object(chatMessageFields).refine(
+  (value) => value.content.length > 0 || Boolean(value.image),
+  { message: 'Message must contain text or an image' },
+);
+
+export const socketSendSchema = z.object({
+  chatId: objectIdSchema,
+  ...chatMessageFields,
+}).refine(
+  (value) => value.content.length > 0 || Boolean(value.image),
+  { message: 'Message must contain text or an image' },
+);
