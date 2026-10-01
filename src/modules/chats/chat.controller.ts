@@ -1,4 +1,4 @@
-import type { Request, Response } from 'express';
+import type { NextFunction, Request, Response } from 'express';
 import { AppError } from '../../common/errors/app-error.js';
 import * as chatService from './chat.service.js';
 
@@ -29,7 +29,7 @@ export async function messages(req: Request, res: Response) {
   res.json({ success: true, data });
 }
 
-export async function ensureMember(req: Request, _res: Response, next: () => void) {
+export async function ensureMember(req: Request, _res: Response, next: NextFunction) {
   await chatService.assertChatMember(userId(req), String(req.params.chatId));
   next();
 }
