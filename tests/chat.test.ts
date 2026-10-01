@@ -18,7 +18,7 @@ let clients: ClientSocket[] = [];
 
 type PublicUser = { id: string; name: string };
 type ChatData = { id: string; type: 'direct' | 'group'; name: string | null; members: PublicUser[] };
-type MessageData = { id: string; chatId: string; senderId: string; content: string };
+type MessageData = { id: string; chatId: string; senderId: string; content: string; images: string[] };
 
 function data<T>(response: TestResponse): T {
   const body: unknown = response.body;
@@ -146,6 +146,52 @@ describe('conversation REST API', () => {
     expect(data<ChatData[]>(list)).toEqual(expect.arrayContaining([expect.objectContaining({ id: data<ChatData>(created).id })]));
     const outsider = await request(server).get('/api/v1/chats').auth(eve.token, { type: 'bearer' }).expect(200);
     expect(data<ChatData[]>(outsider)).toEqual([]);
+  });
+
+  it('uploads chat images and supports image-only messages', async () => {
+    const alice = await member('Alice');
+    const bob = await member('Bob');
+    await makeFriends(alice, bob);
+
+    const created = await request(server).post('/api/v1/chats/direct')
+      .auth(alice.token, { type: 'bearer' })
+      .send({ userId: bob.user.id })
+      .expect(201);
+    const chatId = data<ChatData>(created).id;
+
+    const png = Buffer.from([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+      0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+    ]);
+    const uploaded = await request(server).post('/api/v1/chats/uploads')
+      .auth(alice.token, { type: 'bearer' })
+      .attach('file', png, { filename: 'chat.png', contentType: 'image/png' })
+      .expect(201);
+    const imageUrl = data<{ image: { url: string; mimeType: string; size: number } }>(uploaded).image.url;
+    expect(imageUrl).toMatch(/^\/api\/v1\/chats\/uploads\/[a-f0-9-]{36}\.png$/);
+
+    await request(server).get(imageUrl).expect(200).expect('Content-Type', /image\/png/);
+
+    const sent = await request(server).post(`/api/v1/chats/${chatId}/messages`)
+      .auth(alice.token, { type: 'bearer' })
+      .send({ content: '', images: [imageUrl] })
+      .expect(201);
+    expect(data<MessageData>(sent)).toMatchObject({ chatId, content: '', images: [imageUrl] });
+
+    const history = await request(server).get(`/api/v1/chats/${chatId}/messages`)
+      .auth(bob.token, { type: 'bearer' })
+      .expect(200);
+    expect(data<MessageData[]>(history)[0]).toMatchObject({ images: [imageUrl] });
+
+    await request(server).post(`/api/v1/chats/${chatId}/messages`)
+      .auth(alice.token, { type: 'bearer' })
+      .send({ content: '', images: ['https://example.com/not-allowed.png'] })
+      .expect(422);
+
+    await request(server).post(`/api/v1/chats/${chatId}/messages`)
+      .auth(alice.token, { type: 'bearer' })
+      .send({ content: '', images: [] })
+      .expect(422);
   });
 
   it('restricts group creation and message history to accepted friends and members', async () => {
@@ -297,6 +343,34 @@ describe('Socket.IO delivery', () => {
     expect(refused).toMatchObject({ success: false, error: { code: 'FORBIDDEN' } });
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect(outsiderReceived).not.toHaveBeenCalled();
+  });
+
+  it('broadcasts image message metadata over Socket.IO', async () => {
+    const alice = await member('Alice');
+    const bob = await member('Bob');
+    await makeFriends(alice, bob);
+    const chat = await request(server).post('/api/v1/chats/direct')
+      .auth(alice.token, { type: 'bearer' }).send({ userId: bob.user.id }).expect(201);
+    const chatId = data<ChatData>(chat).id;
+    const imageUrl = '/api/v1/chats/uploads/11111111-1111-4111-8111-111111111111.png';
+
+    const aliceSocket = await socketClient(alice.token);
+    const bobSocket = await socketClient(bob.token);
+    const received = nextMessage(bobSocket);
+    const ack = await new Promise<Record<string, unknown>>((resolve) => {
+      aliceSocket.emit('chat:send', { chatId, content: 'รูปนี้', images: [imageUrl] }, resolve);
+    });
+
+    expect(ack).toMatchObject({
+      success: true,
+      data: { chatId, content: 'รูปนี้', images: [imageUrl] },
+    });
+    expect(await received).toMatchObject({
+      chatId,
+      senderId: alice.user.id,
+      content: 'รูปนี้',
+      images: [imageUrl],
+    });
   });
 
   it('stops a connected account from sending after deactivation', async () => {

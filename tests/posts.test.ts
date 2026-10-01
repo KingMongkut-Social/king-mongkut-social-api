@@ -200,6 +200,7 @@ describe('social posts', () => {
     await request(app).post('/api/v1/posts/uploads').auth(alice.token, { type: 'bearer' })
       .attach('file', Buffer.alloc(10 * 1024 * 1024 + 1, 1), { filename: 'too-large.png', contentType: 'image/png' }).expect(413);
     await request(app).get('/api/v1/posts/uploads/not-a-file.png').expect(404);
-    expect(await readdir(env.UPLOAD_DIR)).toHaveLength(1);
+    const uploadEntries = await readdir(env.UPLOAD_DIR, { withFileTypes: true });
+    expect(uploadEntries.filter((entry) => entry.isFile())).toHaveLength(1);
   });
 });
