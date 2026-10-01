@@ -95,7 +95,7 @@ export function attachChatSocket(server: HttpServer): SocketServer {
         if (!hasCompleteProfile(user)) {
           throw new AppError(403, 'PROFILE_INCOMPLETE', 'กรุณากรอกคณะและภาควิชาก่อนใช้งาน');
         }
-        const message = await sendMessage(userId, parsed.data.chatId, parsed.data.content);
+        const message = await sendMessage(userId, parsed.data.chatId, parsed.data.content, parsed.data.images);
         ack?.({ success: true, data: message });
       } catch (error) {
         ack?.({ success: false, error: socketError(error) });
