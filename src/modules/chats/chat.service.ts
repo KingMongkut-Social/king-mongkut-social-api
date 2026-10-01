@@ -21,6 +21,7 @@ type MessageRecord = {
   chat: Types.ObjectId;
   sender: Types.ObjectId;
   content: string;
+  images?: string[];
   createdAt: Date;
 };
 
@@ -30,6 +31,7 @@ function serializeMessage(message: MessageRecord) {
     chatId: String(message.chat),
     senderId: String(message.sender),
     content: message.content,
+    images: message.images ?? [],
     createdAt: message.createdAt,
   };
 }
@@ -178,12 +180,13 @@ export async function listMessages(userId: string, chatId: string, limit: number
   return messages.map(serializeMessage);
 }
 
-export async function sendMessage(userId: string, chatId: string, content: string) {
+export async function sendMessage(userId: string, chatId: string, content: string, images: string[] = []) {
   const chat = await getMemberChat(userId, chatId);
   const message = await ChatMessageModel.create({
     chat: new Types.ObjectId(chatId),
     sender: new Types.ObjectId(userId),
     content,
+    images,
   });
   await ChatModel.updateOne(
     {
