@@ -42,6 +42,12 @@ export async function get(req: Request, res: Response) {
     data: { group: await service.getGroup(String(req.params.id), req.auth?.userId) },
   });
 }
+export async function update(req: Request, res: Response) {
+  res.json({
+    success: true,
+    data: { group: await service.updateGroup(String(req.params.id), userId(req), req.body as never) },
+  });
+}
 export async function join(req: Request, res: Response) {
   res.json({
     success: true,
@@ -62,6 +68,7 @@ export async function members(req: Request, res: Response) {
       Number(req.query.page ?? 1),
       Number(req.query.limit ?? 20),
       req.auth?.userId,
+      typeof req.query.q === 'string' ? req.query.q : '',
     ),
   });
 }
@@ -84,6 +91,7 @@ export async function createPost(req: Request, res: Response) {
         String(req.params.id),
         userId(req),
         String((req.body as { content: string }).content),
+        (req.body as { mentions?: string[] }).mentions ?? [],
       ),
     },
   });
