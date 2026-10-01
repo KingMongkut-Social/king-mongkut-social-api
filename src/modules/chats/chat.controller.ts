@@ -30,7 +30,7 @@ export async function messages(req: Request, res: Response) {
 }
 
 export async function send(req: Request, res: Response) {
-  const { content } = req.body as { content: string };
-  const message = await chatService.sendMessage(userId(req), String(req.params.chatId), content);
+  const { content, images } = req.body as { content: string; images?: string[] };
+  const message = await chatService.sendMessage(userId(req), String(req.params.chatId), content, images ?? []);
   res.status(201).json({ success: true, data: message });
 }
