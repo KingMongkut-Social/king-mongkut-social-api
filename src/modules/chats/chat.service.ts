@@ -16,20 +16,40 @@ type ChatRecord = {
   updatedAt: Date;
 };
 
+export type ChatImageInput = {
+  url: string;
+  name: string;
+  mimeType: string;
+  size: number;
+};
+
 type MessageRecord = {
   _id: Types.ObjectId;
   chat: Types.ObjectId;
   sender: Types.ObjectId;
   content: string;
+  imageUrl?: string | null;
+  imageName?: string | null;
+  imageMimeType?: string | null;
+  imageSize?: number | null;
   createdAt: Date;
 };
 
 function serializeMessage(message: MessageRecord) {
+  const image = message.imageUrl && message.imageName && message.imageMimeType && message.imageSize
+    ? {
+        url: message.imageUrl,
+        name: message.imageName,
+        mimeType: message.imageMimeType,
+        size: message.imageSize,
+      }
+    : null;
   return {
     id: String(message._id),
     chatId: String(message.chat),
     senderId: String(message.sender),
     content: message.content,
+    image,
     createdAt: message.createdAt,
   };
 }
@@ -154,6 +174,10 @@ export async function createGroupChat(userId: string, name: string, memberIds: s
   return serialized;
 }
 
+export async function assertChatMember(userId: string, chatId: string) {
+  return getMemberChat(userId, chatId);
+}
+
 async function getMemberChat(userId: string, chatId: string) {
   const chat = await ChatModel.findById(chatId).lean();
   if (!chat) throw new AppError(404, 'CHAT_NOT_FOUND', 'Chat not found');
@@ -178,12 +202,23 @@ export async function listMessages(userId: string, chatId: string, limit: number
   return messages.map(serializeMessage);
 }
 
-export async function sendMessage(userId: string, chatId: string, content: string) {
+export async function sendMessage(
+  userId: string,
+  chatId: string,
+  content: string,
+  image?: ChatImageInput | null,
+) {
   const chat = await getMemberChat(userId, chatId);
   const message = await ChatMessageModel.create({
     chat: new Types.ObjectId(chatId),
     sender: new Types.ObjectId(userId),
     content,
+    ...(image ? {
+      imageUrl: image.url,
+      imageName: image.name,
+      imageMimeType: image.mimeType,
+      imageSize: image.size,
+    } : {}),
   });
   await ChatModel.updateOne(
     {
