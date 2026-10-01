@@ -31,4 +31,5 @@ export const authRateLimit = rateLimit({
 export const googleAuthRateLimit = rateLimit({ ...common, windowMs: 15 * 60 * 1000, limit: 40 });
 
 export const postUploadRateLimit = rateLimit({ ...common, windowMs: 15 * 60 * 1000, limit: 30 });
+export const chatUploadRateLimit = rateLimit({ ...common, windowMs: 15 * 60 * 1000, limit: 60 });
 export const profileUploadRateLimit = rateLimit({ ...common, windowMs: 15 * 60 * 1000, limit: 20 });
