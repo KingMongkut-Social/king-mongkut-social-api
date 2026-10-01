@@ -18,7 +18,13 @@ let clients: ClientSocket[] = [];
 
 type PublicUser = { id: string; name: string };
 type ChatData = { id: string; type: 'direct' | 'group'; name: string | null; members: PublicUser[] };
-type MessageData = { id: string; chatId: string; senderId: string; content: string };
+type MessageData = {
+  id: string;
+  chatId: string;
+  senderId: string;
+  content: string;
+  image?: { url: string; name: string; mimeType: string; size: number } | null;
+};
 
 function data<T>(response: TestResponse): T {
   const body: unknown = response.body;
@@ -146,6 +152,58 @@ describe('conversation REST API', () => {
     expect(data<ChatData[]>(list)).toEqual(expect.arrayContaining([expect.objectContaining({ id: data<ChatData>(created).id })]));
     const outsider = await request(server).get('/api/v1/chats').auth(eve.token, { type: 'bearer' }).expect(200);
     expect(data<ChatData[]>(outsider)).toEqual([]);
+  });
+
+  it('uploads and sends image-only messages for chat members', async () => {
+    const alice = await member('Alice');
+    const bob = await member('Bob');
+    const eve = await member('Eve');
+    await makeFriends(alice, bob);
+
+    const created = await request(server).post('/api/v1/chats/direct')
+      .auth(alice.token, { type: 'bearer' })
+      .send({ userId: bob.user.id })
+      .expect(201);
+    const chatId = data<ChatData>(created).id;
+
+    const png = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZfVwAAAAASUVORK5CYII=',
+      'base64',
+    );
+
+    await request(server).post(`/api/v1/chats/${chatId}/uploads`)
+      .auth(eve.token, { type: 'bearer' })
+      .attach('file', png, { filename: 'blocked.png', contentType: 'image/png' })
+      .expect(403);
+
+    const uploaded = await request(server).post(`/api/v1/chats/${chatId}/uploads`)
+      .auth(alice.token, { type: 'bearer' })
+      .attach('file', png, { filename: 'photo.png', contentType: 'image/png' })
+      .expect(201);
+    const asset = data<{ asset: { url: string; name: string; mimeType: string; size: number } }>(uploaded).asset;
+    expect(asset).toMatchObject({ name: 'photo.png', mimeType: 'image/png' });
+    expect(asset.url).toMatch(/^\/api\/v1\/chats\/uploads\/[a-f0-9-]{36}\.png$/);
+
+    const sent = await request(server).post(`/api/v1/chats/${chatId}/messages`)
+      .auth(alice.token, { type: 'bearer' })
+      .send({ content: '', image: asset })
+      .expect(201);
+    expect(data<MessageData>(sent)).toMatchObject({
+      chatId,
+      senderId: alice.user.id,
+      content: '',
+      image: asset,
+    });
+
+    const history = await request(server).get(`/api/v1/chats/${chatId}/messages`)
+      .auth(bob.token, { type: 'bearer' })
+      .expect(200);
+    expect(data<MessageData[]>(history)[0]).toMatchObject({ image: asset });
+
+    await request(server).post(`/api/v1/chats/${chatId}/messages`)
+      .auth(alice.token, { type: 'bearer' })
+      .send({ content: '' })
+      .expect(422);
   });
 
   it('restricts group creation and message history to accepted friends and members', async () => {
