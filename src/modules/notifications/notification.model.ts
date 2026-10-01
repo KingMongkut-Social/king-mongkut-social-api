@@ -3,7 +3,7 @@ import { Schema, model, type Types } from 'mongoose';
 export type NotificationType =
   | 'friend_request' | 'friend_accept'
   | 'post_reaction' | 'post_comment' | 'comment_reply'
-  | 'group_invite' | 'group_join';
+  | 'group_invite' | 'group_join' | 'group_mention';
 
 export interface Notification {
   recipient: Types.ObjectId;
@@ -21,7 +21,7 @@ const schema = new Schema<Notification>({
   actor: { type: Schema.Types.ObjectId, ref: 'User', required: true },
   type: {
     type: String,
-    enum: ['friend_request', 'friend_accept', 'post_reaction', 'post_comment', 'comment_reply', 'group_invite', 'group_join'],
+    enum: ['friend_request', 'friend_accept', 'post_reaction', 'post_comment', 'comment_reply', 'group_invite', 'group_join', 'group_mention'],
     required: true,
   },
   entityId: { type: String, default: null },

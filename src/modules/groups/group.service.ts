@@ -113,6 +113,30 @@ export async function getGroup(id: string, viewerId?: string) {
   return serializeGroup(group, viewerId);
 }
 
+export async function updateGroup(
+  id: string,
+  userId: string,
+  input: { name?: string; description?: string },
+) {
+  const [existingGroup, membership] = await Promise.all([
+    CommunityGroupModel.exists({ _id: id }),
+    GroupMemberModel.findOne({ group: id, user: userId }).select('role').lean(),
+  ]);
+  if (!existingGroup) throw new AppError(404, 'GROUP_NOT_FOUND', 'Group not found');
+  if (!membership || !['owner', 'admin'].includes(membership.role)) {
+    throw new AppError(403, 'GROUP_MANAGE_FORBIDDEN', 'Only group owners and admins can edit this group');
+  }
+
+  const group = await CommunityGroupModel.findByIdAndUpdate(
+    id,
+    { $set: input },
+    { returnDocument: 'after', runValidators: true },
+  ).populate('creator', 'name username avatarUrl university').lean();
+
+  if (!group) throw new AppError(404, 'GROUP_NOT_FOUND', 'Group not found');
+  return serializeGroup(group, userId);
+}
+
 export async function joinGroup(id: string, userId: string) {
   const group = await CommunityGroupModel.findById(id).lean();
   if (!group) throw new AppError(404, 'GROUP_NOT_FOUND', 'Group not found');
@@ -145,13 +169,31 @@ export async function leaveGroup(id: string, userId: string) {
   return { left: true };
 }
 
-export async function listMembers(id: string, page: number, limit: number, viewerId?: string) {
+export async function listMembers(
+  id: string,
+  page: number,
+  limit: number,
+  viewerId?: string,
+  query = '',
+) {
   await requireReadableGroup(id, viewerId);
+
+  const filter: Record<string, unknown> = { group: id };
+  const cleanQuery = query.trim();
+  if (cleanQuery) {
+    const pattern = new RegExp(escapeRegex(cleanQuery), 'i');
+    const matchingUsers = await UserModel.find({
+      isActive: true,
+      $or: [{ name: pattern }, { username: pattern }],
+    }).select('_id').lean();
+    filter.user = { $in: matchingUsers.map((user) => user._id) };
+  }
+
   const [members, total] = await Promise.all([
-    GroupMemberModel.find({ group: id }).sort({ createdAt: 1 })
+    GroupMemberModel.find(filter).sort({ createdAt: 1 })
       .skip((page - 1) * limit).limit(limit)
       .populate('user', 'name username avatarUrl university faculty department').lean(),
-    GroupMemberModel.countDocuments({ group: id }),
+    GroupMemberModel.countDocuments(filter),
   ]);
   return {
     items: members.map((member) => ({
@@ -172,7 +214,8 @@ export async function listPosts(id: string, page: number, limit: number, viewerI
   const [posts, total] = await Promise.all([
     GroupPostModel.find({ group: id }).sort({ createdAt: -1 })
       .skip((page - 1) * limit).limit(limit)
-      .populate('author', 'name username avatarUrl university').lean(),
+      .populate('author', 'name username avatarUrl university')
+      .populate('mentions', 'name username avatarUrl university').lean(),
     GroupPostModel.countDocuments({ group: id }),
   ]);
   return {
@@ -180,6 +223,7 @@ export async function listPosts(id: string, page: number, limit: number, viewerI
       id: String(post._id),
       content: post.content,
       author: post.author,
+      mentions: post.mentions ?? [],
       createdAt: post.createdAt,
     })),
     page,
@@ -189,12 +233,48 @@ export async function listPosts(id: string, page: number, limit: number, viewerI
   };
 }
 
-export async function createPost(id: string, userId: string, content: string) {
-  const member = await GroupMemberModel.exists({ group: id, user: userId });
+export async function createPost(id: string, userId: string, content: string, mentions: string[] = []) {
+  const [group, member] = await Promise.all([
+    CommunityGroupModel.findById(id).select('name').lean(),
+    GroupMemberModel.exists({ group: id, user: userId }),
+  ]);
+  if (!group) throw new AppError(404, 'GROUP_NOT_FOUND', 'Group not found');
   if (!member) throw new AppError(403, 'GROUP_MEMBERS_ONLY', 'Join the group before posting');
-  const post = await GroupPostModel.create({ group: id, author: userId, content });
+
+  const uniqueMentions = [...new Set(mentions)];
+  if (uniqueMentions.length) {
+    const [mentionedMemberships, activeUsers] = await Promise.all([
+      GroupMemberModel.find({ group: id, user: { $in: uniqueMentions } }).select('user').lean(),
+      UserModel.find({ _id: { $in: uniqueMentions }, isActive: true }).select('_id').lean(),
+    ]);
+    const memberIds = new Set(mentionedMemberships.map((item) => String(item.user)));
+    const activeIds = new Set(activeUsers.map((item) => String(item._id)));
+    const invalidMention = uniqueMentions.find((mentionId) => !memberIds.has(mentionId) || !activeIds.has(mentionId));
+    if (invalidMention) {
+      throw new AppError(400, 'GROUP_MENTION_INVALID', 'Mentioned users must be active members of the group');
+    }
+  }
+
+  const post = await GroupPostModel.create({
+    group: id,
+    author: userId,
+    content,
+    mentions: uniqueMentions,
+  });
+
+  await Promise.all(uniqueMentions
+    .filter((mentionId) => mentionId !== userId)
+    .map((mentionId) => createNotification({
+      recipientId: mentionId,
+      actorId: userId,
+      type: 'group_mention',
+      entityId: id,
+      content: group.name,
+    })));
+
   return GroupPostModel.findById(post._id)
-    .populate('author', 'name username avatarUrl university').lean();
+    .populate('author', 'name username avatarUrl university')
+    .populate('mentions', 'name username avatarUrl university').lean();
 }
 
 

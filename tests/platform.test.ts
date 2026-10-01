@@ -244,6 +244,87 @@ describe('completed social platform APIs', () => {
       .toEqual(expect.arrayContaining([expect.objectContaining({ id: groupId })]));
   });
 
+  it('lets group owners edit metadata and rejects unauthorized edits', async () => {
+    const alice = await member('Alice');
+    const bob = await member('Bob');
+
+    const created = await request(app).post('/api/v1/groups')
+      .auth(alice.token, { type: 'bearer' })
+      .send({ name: 'Old Group Name', description: 'Before', privacy: 'public' })
+      .expect(201);
+    const groupId = data<{ group: { id: string } }>(created).group.id;
+
+    await request(app).put(`/api/v1/groups/${groupId}/join`)
+      .auth(bob.token, { type: 'bearer' })
+      .expect(200);
+
+    await request(app).patch(`/api/v1/groups/${groupId}`)
+      .auth(bob.token, { type: 'bearer' })
+      .send({ name: 'Should Not Work' })
+      .expect(403);
+
+    const updated = await request(app).patch(`/api/v1/groups/${groupId}`)
+      .auth(alice.token, { type: 'bearer' })
+      .send({ name: 'Renamed Group', description: 'After' })
+      .expect(200);
+    expect(data<{ group: { name: string; description: string } }>(updated).group)
+      .toMatchObject({ name: 'Renamed Group', description: 'After' });
+
+    const reloaded = await request(app).get(`/api/v1/groups/${groupId}`)
+      .auth(alice.token, { type: 'bearer' })
+      .expect(200);
+    expect(data<{ group: { name: string } }>(reloaded).group.name).toBe('Renamed Group');
+
+    await request(app).patch(`/api/v1/groups/${groupId}`)
+      .auth(alice.token, { type: 'bearer' })
+      .send({ name: 'x' })
+      .expect(422);
+  });
+
+  it('searches group members and persists valid member mentions with notifications', async () => {
+    const alice = await member('Alice');
+    const bob = await member('Bob');
+    const eve = await member('Eve');
+
+    const created = await request(app).post('/api/v1/groups')
+      .auth(alice.token, { type: 'bearer' })
+      .send({ name: 'Mention Lab', description: 'Group mentions', privacy: 'public' })
+      .expect(201);
+    const groupId = data<{ group: { id: string } }>(created).group.id;
+
+    await request(app).put(`/api/v1/groups/${groupId}/join`)
+      .auth(bob.token, { type: 'bearer' })
+      .expect(200);
+
+    const members = await request(app).get(`/api/v1/groups/${groupId}/members`)
+      .query({ q: 'Bob', page: 1, limit: 8 })
+      .expect(200);
+    const memberData = data<{ items: Array<{ user: { name: string } }>; total: number }>(members);
+    expect(memberData.total).toBe(1);
+    expect(memberData.items).toHaveLength(1);
+    expect(memberData.items[0]?.user.name).toBe('Bob');
+
+    const posted = await request(app).post(`/api/v1/groups/${groupId}/posts`)
+      .auth(alice.token, { type: 'bearer' })
+      .send({ content: '@Bob ช่วยดูโพสต์นี้หน่อย', mentions: [bob.user.id, bob.user.id] })
+      .expect(201);
+    const post = data<{ post: { mentions: Array<{ _id: string; name: string }> } }>(posted).post;
+    expect(post.mentions).toHaveLength(1);
+    expect(String(post.mentions[0]?._id)).toBe(bob.user.id);
+
+    const notifications = await request(app).get('/api/v1/notifications')
+      .auth(bob.token, { type: 'bearer' })
+      .expect(200);
+    expect(data<{ items: Array<{ type: string; entityId: string }> }>(notifications).items[0])
+      .toMatchObject({ type: 'group_mention', entityId: groupId });
+
+    await request(app).post(`/api/v1/groups/${groupId}/posts`)
+      .auth(alice.token, { type: 'bearer' })
+      .send({ content: '@Eve should fail', mentions: [eve.user.id] })
+      .expect(400);
+  });
+
+
   it('rejects reports for missing targets and cleans post relations during moderation', async () => {
     const alice = await member('Alice');
     const bob = await member('Bob');
