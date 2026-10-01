@@ -278,7 +278,7 @@ describe('completed social platform APIs', () => {
     await request(app).patch(`/api/v1/groups/${groupId}`)
       .auth(alice.token, { type: 'bearer' })
       .send({ name: 'x' })
-      .expect(400);
+      .expect(422);
   });
 
   it('searches group members and persists valid member mentions with notifications', async () => {
