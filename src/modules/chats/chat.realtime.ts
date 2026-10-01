@@ -37,7 +37,7 @@ export function emitChatUpdated<T extends { members: { id: string }[] }>(chat: T
 
 export function emitMessageNew(
   members: string[],
-  message: { id: string; chatId: string; senderId: string; content: string; createdAt: Date },
+  message: { id: string; chatId: string; senderId: string; content: string; images: string[]; createdAt: Date },
 ): void {
   for (const memberId of members) {
     io?.to(`user:${memberId}`).emit('message:new', message);
