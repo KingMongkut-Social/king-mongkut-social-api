@@ -316,7 +316,10 @@ describe('first-login required profile setup', () => {
       })
       .expect(200);
 
-    expect(completed.body).toMatchObject({
+    const completedBody = completed.body as unknown as {
+      data: { user: Record<string, unknown> };
+    };
+    expect(completedBody).toMatchObject({
       data: {
         user: {
           name: 'First Login',
@@ -329,7 +332,7 @@ describe('first-login required profile setup', () => {
         },
       },
     });
-    expect(completed.body.data.user).not.toHaveProperty('profileSetupRequired');
+    expect(completedBody.data.user).not.toHaveProperty('profileSetupRequired');
 
     await request(app).get('/api/v1/posts/mine')
       .auth(login.tokens.accessToken, { type: 'bearer' })
