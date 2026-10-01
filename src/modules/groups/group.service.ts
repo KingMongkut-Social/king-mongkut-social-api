@@ -118,7 +118,11 @@ export async function updateGroup(
   userId: string,
   input: { name?: string; description?: string },
 ) {
-  const membership = await GroupMemberModel.findOne({ group: id, user: userId }).select('role').lean();
+  const [existingGroup, membership] = await Promise.all([
+    CommunityGroupModel.exists({ _id: id }),
+    GroupMemberModel.findOne({ group: id, user: userId }).select('role').lean(),
+  ]);
+  if (!existingGroup) throw new AppError(404, 'GROUP_NOT_FOUND', 'Group not found');
   if (!membership || !['owner', 'admin'].includes(membership.role)) {
     throw new AppError(403, 'GROUP_MANAGE_FORBIDDEN', 'Only group owners and admins can edit this group');
   }
@@ -181,7 +185,7 @@ export async function listMembers(
     const matchingUsers = await UserModel.find({
       isActive: true,
       $or: [{ name: pattern }, { username: pattern }],
-    }).select('_id').limit(200).lean();
+    }).select('_id').lean();
     filter.user = { $in: matchingUsers.map((user) => user._id) };
   }
 
