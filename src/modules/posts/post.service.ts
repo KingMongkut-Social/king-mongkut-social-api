@@ -297,6 +297,10 @@ async function cleanupPostFiles(post: Post) {
       if (!url.startsWith(uploadPrefix)) return;
       const filename = url.slice(uploadPrefix.length);
       if (/^[a-f0-9-]{36}\.[a-z0-9]+$/i.test(filename)) {
+        const shared = await PostModel.exists({
+          $or: [{ images: url }, { coverImage: url }, { 'attachments.url': url }],
+        });
+        if (shared) return;
         const filePath = resolve(uploadDir, filename);
         await unlink(filePath).catch(() => undefined);
       }
@@ -306,8 +310,8 @@ async function cleanupPostFiles(post: Post) {
 
 export async function deletePost(id: string, userId: string, role: Role) {
   const post = await getOwnedPost(id, userId, role);
-  await cleanupPostFiles(post.toObject());
   await post.deleteOne();
+  await cleanupPostFiles(post.toObject());
   await Promise.all([
     PostLikeModel.deleteMany({ post: post._id }),
     PostBookmarkModel.deleteMany({ post: post._id }),

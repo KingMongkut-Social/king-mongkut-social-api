@@ -182,6 +182,22 @@ describe('social posts', () => {
     expect(data<{ post: PostResponse }>(updated).post.commentCount).toBe(1);
   });
 
+  it('keeps a shared upload until the last referencing post is deleted', async () => {
+    const alice = await member('Alice');
+    const bob = await member('Bob');
+    const uploaded = await request(app).post('/api/v1/posts/uploads').auth(alice.token, { type: 'bearer' })
+      .attach('file', Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), { filename: 'shared.png', contentType: 'image/png' }).expect(201);
+    const url = data<{ asset: { url: string } }>(uploaded).asset.url;
+    const original = data<{ post: PostResponse }>(await request(app).post('/api/v1/posts')
+      .auth(alice.token, { type: 'bearer' }).send({ images: [url] }).expect(201)).post;
+    const shared = data<{ post: PostResponse }>(await request(app).post('/api/v1/posts')
+      .auth(bob.token, { type: 'bearer' }).send({ coverImage: url }).expect(201)).post;
+    await request(app).delete(`/api/v1/posts/${shared._id}`).auth(bob.token, { type: 'bearer' }).expect(204);
+    await request(app).get(url).expect(200);
+    await request(app).delete(`/api/v1/posts/${original._id}`).auth(alice.token, { type: 'bearer' }).expect(204);
+    await request(app).get(url).expect(404);
+  });
+
   it('uploads and serves a checked file, rejects spoofed files and unsafe paths', async () => {
     const alice = await member('Alice');
     const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);

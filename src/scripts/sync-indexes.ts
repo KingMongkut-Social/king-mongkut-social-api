@@ -10,6 +10,7 @@ import { UserModel } from '../modules/users/user.model.js';
 import { FriendshipModel } from '../modules/friends/friendship.model.js';
 import { ChatModel } from '../modules/chats/chat.model.js';
 import { ChatMessageModel } from '../modules/chats/chat-message.model.js';
+import { ChatUploadModel } from '../modules/chats/chat-upload.model.js';
 import { CommunityGroupModel } from '../modules/groups/group.model.js';
 import { GroupMemberModel } from '../modules/groups/group-member.model.js';
 import { GroupInviteModel } from '../modules/groups/group-invite.model.js';
@@ -30,6 +31,7 @@ async function main(): Promise<void> {
     FriendshipModel.syncIndexes(),
     ChatModel.syncIndexes(),
     ChatMessageModel.syncIndexes(),
+    ChatUploadModel.syncIndexes(),
     CommunityGroupModel.syncIndexes(),
     GroupMemberModel.syncIndexes(),
     GroupInviteModel.syncIndexes(),

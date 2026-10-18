@@ -9,6 +9,7 @@ import { signAccessToken } from '../src/modules/auth/token.service.js';
 import { FriendshipModel } from '../src/modules/friends/friendship.model.js';
 import { attachChatSocket } from '../src/modules/chats/chat.socket.js';
 import { UserModel } from '../src/modules/users/user.model.js';
+import { ChatUploadModel } from '../src/modules/chats/chat-upload.model.js';
 
 const server = createServer(createApp());
 let socketServer: ReturnType<typeof attachChatSocket>;
@@ -170,13 +171,23 @@ describe('conversation REST API', () => {
     const imageUrl = data<{ image: { url: string; mimeType: string; size: number } }>(uploaded).image.url;
     expect(imageUrl).toMatch(/^\/api\/v1\/chats\/uploads\/[a-f0-9-]{36}\.png$/);
 
-    await request(server).get(imageUrl).expect(200).expect('Content-Type', /image\/png/);
+    await request(server).get(imageUrl).expect(401);
+    await request(server).get(imageUrl).auth(alice.token, { type: 'bearer' }).expect(200).expect('Content-Type', /image\/png/);
+    await request(server).get(imageUrl).auth(bob.token, { type: 'bearer' }).expect(404);
+    await request(server).post(`/api/v1/chats/${chatId}/messages`)
+      .auth(bob.token, { type: 'bearer' }).send({ images: [imageUrl] }).expect(404);
 
     const sent = await request(server).post(`/api/v1/chats/${chatId}/messages`)
       .auth(alice.token, { type: 'bearer' })
       .send({ content: '', images: [imageUrl] })
       .expect(201);
     expect(data<MessageData>(sent)).toMatchObject({ chatId, content: '', images: [imageUrl] });
+    await request(server).get(imageUrl).auth(bob.token, { type: 'bearer' }).expect(200);
+    // Images sent before upload ownership records existed remain readable to members.
+    await ChatUploadModel.deleteOne({ url: imageUrl });
+    await request(server).get(imageUrl).auth(bob.token, { type: 'bearer' }).expect(200);
+    const eve = await member('Eve');
+    await request(server).get(imageUrl).auth(eve.token, { type: 'bearer' }).expect(404);
 
     const history = await request(server).get(`/api/v1/chats/${chatId}/messages`)
       .auth(bob.token, { type: 'bearer' })
@@ -353,6 +364,7 @@ describe('Socket.IO delivery', () => {
       .auth(alice.token, { type: 'bearer' }).send({ userId: bob.user.id }).expect(201);
     const chatId = data<ChatData>(chat).id;
     const imageUrl = '/api/v1/chats/uploads/11111111-1111-4111-8111-111111111111.png';
+    await ChatUploadModel.create({ url: imageUrl, owner: alice.user._id });
 
     const aliceSocket = await socketClient(alice.token);
     const bobSocket = await socketClient(bob.token);

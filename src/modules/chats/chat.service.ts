@@ -4,6 +4,7 @@ import { FriendshipModel } from '../friends/friendship.model.js';
 import { UserModel } from '../users/user.model.js';
 import { ChatMessageModel } from './chat-message.model.js';
 import { ChatModel } from './chat.model.js';
+import { ChatUploadModel } from './chat-upload.model.js';
 import { emitChatUpdated, emitMessageNew, emitTyping } from './chat.realtime.js';
 
 type ChatRecord = {
@@ -182,6 +183,7 @@ export async function listMessages(userId: string, chatId: string, limit: number
 
 export async function sendMessage(userId: string, chatId: string, content: string, images: string[] = []) {
   const chat = await getMemberChat(userId, chatId);
+  await assertChatImagesReadable(userId, images);
   const message = await ChatMessageModel.create({
     chat: new Types.ObjectId(chatId),
     sender: new Types.ObjectId(userId),
@@ -207,6 +209,25 @@ export async function sendMessage(userId: string, chatId: string, content: strin
   emitMessageNew(chat.members.map(String), serializedMessage);
   emitChatUpdated(serializedChat);
   return serializedMessage;
+}
+
+export async function assertChatImagesReadable(userId: string, images: string[]): Promise<void> {
+  if (!images.length) return;
+  const [uploads, chats] = await Promise.all([
+    ChatUploadModel.find({ owner: userId, url: { $in: images } }).select('url').lean(),
+    ChatModel.find({ members: userId }).select('_id').lean(),
+  ]);
+  const allowed = new Set(uploads.map((upload) => upload.url));
+  const remaining = images.filter((url) => !allowed.has(url));
+  if (remaining.length) {
+    const messages = await ChatMessageModel.find({
+      chat: { $in: chats.map((chat) => chat._id) }, images: { $in: remaining },
+    }).select('images').lean();
+    for (const message of messages) for (const url of message.images ?? []) allowed.add(url);
+  }
+  if (images.some((url) => !allowed.has(url))) {
+    throw new AppError(404, 'ASSET_NOT_FOUND', 'Image not found');
+  }
 }
 
 export async function handleTyping(userId: string, chatId: string, isTyping: boolean): Promise<void> {

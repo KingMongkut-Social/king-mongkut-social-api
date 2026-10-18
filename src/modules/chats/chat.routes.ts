@@ -11,8 +11,8 @@ import {
 } from './chat.schemas.js';
 
 export const chatRouter = Router();
-chatRouter.get('/uploads/:filename', serveChatImage);
 chatRouter.use(authenticate, requireCompleteProfile);
+chatRouter.get('/uploads/:filename', serveChatImage);
 chatRouter.post('/uploads', chatUploadRateLimit, uploadChatImage);
 chatRouter.get('/', asyncHandler(controller.list));
 chatRouter.post('/direct', validate({ body: createDirectSchema }), asyncHandler(controller.createDirect));

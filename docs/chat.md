@@ -1,5 +1,13 @@
 # Friends and real-time chat
 
+## Chat images
+
+`POST /api/v1/chats/uploads` accepts one multipart field named `file` (JPEG, PNG, GIF, WebP or AVIF, up to 10 MB) and returns `data.image.url`. Include up to four returned URLs in a message's `images` array. A sender may attach their own uploads or images already shared in one of their conversations.
+
+`GET /api/v1/chats/uploads/:filename` requires the bearer token. The uploader can read the image before sending; after sending, members of the conversation can also read it. Anonymous requests return 401 and unauthorized images return 404. Existing images in message history use the same membership check. Responses use `Cache-Control: private, no-store`.
+
+Browser clients must fetch images with the authorization header, turn the response blob into an object URL, and revoke that URL when leaving the page. A plain `<img src="/api/v1/chats/uploads/...">` cannot supply the bearer header. Deploy the app and API changes together.
+
 The friends and chat APIs use the usual `/api/v1` prefix. Send the access token in an `Authorization: Bearer <token>` header. The account must be active and its faculty and department must be saved. API responses use `{ success: true, data }` or `{ success: false, error: { code, message } }`.
 
 ## Friends

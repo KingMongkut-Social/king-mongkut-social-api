@@ -6,6 +6,8 @@ import multer from 'multer';
 import { AppError } from '../../common/errors/app-error.js';
 import { env } from '../../config/env.js';
 import { hasExpectedSignature } from '../posts/post-upload.js';
+import { ChatUploadModel } from './chat-upload.model.js';
+import { assertChatImagesReadable } from './chat.service.js';
 
 const uploadDir = resolve(env.UPLOAD_DIR, 'chats');
 const maxFileSize = 10 * 1024 * 1024;
@@ -63,11 +65,18 @@ export const uploadChatImage: RequestHandler = (req, res, next) => {
         await unlink(uploadedFile.path).catch(() => undefined);
         throw new AppError(415, 'UNSUPPORTED_MEDIA_TYPE', 'File content does not match its image type');
       }
+      const url = `/api/v1/chats/uploads/${uploadedFile.filename}`;
+      try {
+        await ChatUploadModel.create({ url, owner: req.auth!.userId });
+      } catch (saveError) {
+        await unlink(uploadedFile.path).catch(() => undefined);
+        throw saveError;
+      }
       res.status(201).json({
         success: true,
         data: {
           image: {
-            url: `/api/v1/chats/uploads/${uploadedFile.filename}`,
+            url,
             mimeType: uploadedFile.mimetype,
             size: uploadedFile.size,
           },
@@ -77,7 +86,7 @@ export const uploadChatImage: RequestHandler = (req, res, next) => {
   });
 };
 
-export const serveChatImage: RequestHandler = (req, res, next) => {
+export const serveChatImage: RequestHandler = async (req, res, next) => {
   const filename = req.params.filename;
   if (typeof filename !== 'string' || !/^[a-f0-9-]{36}\.(jpg|png|gif|webp|avif)$/.test(filename)) {
     next(new AppError(404, 'ASSET_NOT_FOUND', 'Image not found'));
@@ -89,8 +98,14 @@ export const serveChatImage: RequestHandler = (req, res, next) => {
     next(new AppError(404, 'ASSET_NOT_FOUND', 'Image not found'));
     return;
   }
+  try {
+    await assertChatImagesReadable(req.auth!.userId, [`/api/v1/chats/uploads/${filename}`]);
+  } catch (error) {
+    next(error);
+    return;
+  }
   res.type(mimeType);
-  res.setHeader('Cache-Control', 'private, max-age=31536000, immutable');
+  res.setHeader('Cache-Control', 'private, no-store');
   res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.sendFile(filename, { root: uploadDir }, (error) => {
