@@ -11,7 +11,7 @@ import { PostCommentModel } from './post-comment.model.js';
 import { PostLikeModel, type PostReaction } from './post-like.model.js';
 import { createNotification } from '../notifications/notification.service.js';
 import { PostModel, type Post, type PostAttachment } from './post.model.js';
-import type { CreateCommentInput, CreatePostInput, ListCommentsQuery, ListPostsQuery, UpdatePostInput } from './post.schemas.js';
+import type { CreateCommentInput, CreatePostInput, ListCommentsQuery, ListPostsQuery, ListReactionsQuery, UpdatePostInput } from './post.schemas.js';
 
 type LeanPost = Record<string, unknown> & { _id: Types.ObjectId; user: unknown };
 
@@ -381,6 +381,50 @@ export async function listComments(id: string, query: ListCommentsQuery, viewer?
     PostCommentModel.countDocuments({ post: id }),
   ]);
   return pageResult(items, query.page, query.limit, total);
+}
+
+export async function listReactions(id: string, query: ListReactionsQuery, viewer?: { userId: string; role: Role }) {
+  await getPost(id, viewer);
+  const filter: Record<string, unknown> = { post: id };
+  if (query.reaction) {
+    filter.reaction = query.reaction;
+  }
+  const skip = (query.page - 1) * query.limit;
+  const [items, total, counts] = await Promise.all([
+    PostLikeModel.find(filter)
+      .sort({ createdAt: -1, _id: -1 })
+      .skip(skip)
+      .limit(query.limit)
+      .populate('user', 'name username avatarUrl university faculty department')
+      .lean(),
+    PostLikeModel.countDocuments(filter),
+    PostLikeModel.aggregate<{ _id: PostReaction; count: number }>([
+      { $match: { post: new Types.ObjectId(id) } },
+      { $group: { _id: { $ifNull: ['$reaction', 'LIKE'] }, count: { $sum: 1 } } },
+    ]),
+  ]);
+
+  const reactionCounts: Record<PostReaction, number> = {
+    LIKE: 0,
+    LOVE: 0,
+    HAHA: 0,
+    WOW: 0,
+    SAD: 0,
+    ANGRY: 0,
+  };
+  let totalReactions = 0;
+  for (const item of counts) {
+    if (item._id && reactionCounts[item._id] !== undefined) {
+      reactionCounts[item._id] = item.count;
+      totalReactions += item.count;
+    }
+  }
+
+  return {
+    ...pageResult(items, query.page, query.limit, total),
+    reactionCounts,
+    totalReactions,
+  };
 }
 
 export async function addComment(id: string, userId: string, input: CreateCommentInput) {

@@ -64,9 +64,16 @@ export const listCommentsQuerySchema = z.object({
   limit: z.coerce.number().int().positive().max(100).default(20),
 });
 
+export const listReactionsQuerySchema = z.object({
+  page: z.coerce.number().int().positive().default(1),
+  limit: z.coerce.number().int().positive().max(100).default(50),
+  reaction: z.enum(['LIKE', 'LOVE', 'HAHA', 'WOW', 'SAD', 'ANGRY']).optional(),
+});
+
 export type CreatePostInput = z.infer<typeof createPostSchema>;
 export type UpdatePostInput = z.infer<typeof updatePostSchema>;
 export type ListPostsQuery = z.infer<typeof listPostsQuerySchema>;
 export type ReactionInput = z.infer<typeof reactionSchema>;
 export type CreateCommentInput = z.infer<typeof createCommentSchema>;
 export type ListCommentsQuery = z.infer<typeof listCommentsQuerySchema>;
+export type ListReactionsQuery = z.infer<typeof listReactionsQuerySchema>;

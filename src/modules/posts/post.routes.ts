@@ -9,7 +9,7 @@ import * as controller from './post.controller.js';
 import { uploadPostAsset, servePostAsset } from './post-upload.js';
 import {
   createCommentSchema, createPostSchema, listCommentsQuerySchema, listPostsQuerySchema,
-  postCommentParamsSchema, postIdParamsSchema, reactionSchema, updatePostSchema,
+  listReactionsQuerySchema, postCommentParamsSchema, postIdParamsSchema, reactionSchema, updatePostSchema,
 } from './post.schemas.js';
 
 export const postRouter = Router();
@@ -20,6 +20,7 @@ postRouter.get('/bookmarks', authenticate, requireCompleteProfile, validate({ qu
 postRouter.post('/uploads', authenticate, requireCompleteProfile, postUploadRateLimit, uploadPostAsset);
 postRouter.get('/uploads/:filename', servePostAsset);
 postRouter.get('/:id', optionalAuthenticate, validate({ params: postIdParamsSchema }), asyncHandler(controller.getById));
+postRouter.get('/:id/reactions', optionalAuthenticate, validate({ params: postIdParamsSchema, query: listReactionsQuerySchema }), asyncHandler(controller.reactions));
 postRouter.post('/', authenticate, requireCompleteProfile, validate({ body: createPostSchema }), asyncHandler(controller.create));
 postRouter.patch('/:id', authenticate, requireCompleteProfile, validate({ params: postIdParamsSchema, body: updatePostSchema }), asyncHandler(controller.update));
 postRouter.delete('/:id', authenticate, requireCompleteProfile, validate({ params: postIdParamsSchema }), asyncHandler(controller.remove));

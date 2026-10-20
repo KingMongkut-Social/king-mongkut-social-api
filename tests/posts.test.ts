@@ -219,4 +219,30 @@ describe('social posts', () => {
     const uploadEntries = await readdir(env.UPLOAD_DIR, { withFileTypes: true });
     expect(uploadEntries.filter((entry) => entry.isFile())).toHaveLength(1);
   });
+
+  it('lists reactions with user details and counts breakdown', async () => {
+    const alice = await member('Alice');
+    const bob = await member('Bob');
+    const charlie = await member('Charlie');
+    const post = data<{ post: PostResponse }>(await request(app).post('/api/v1/posts')
+      .auth(alice.token, { type: 'bearer' }).send({ content: 'Post for reactions' }).expect(201)).post;
+
+    await request(app).put(`/api/v1/posts/${post._id}/reaction`).auth(bob.token, { type: 'bearer' })
+      .send({ reaction: 'SAD' }).expect(200);
+    await request(app).put(`/api/v1/posts/${post._id}/reaction`).auth(charlie.token, { type: 'bearer' })
+      .send({ reaction: 'LIKE' }).expect(200);
+
+    const allReactions = await request(app).get(`/api/v1/posts/${post._id}/reactions`).expect(200);
+    const result = data<{ items: Array<{ reaction: string; user: { name: string } }>; total: number; reactionCounts: Record<string, number> }>(allReactions);
+    expect(result.total).toBe(2);
+    expect(result.reactionCounts.SAD).toBe(1);
+    expect(result.reactionCounts.LIKE).toBe(1);
+    expect(result.items.map((i) => i.reaction)).toEqual(expect.arrayContaining(['SAD', 'LIKE']));
+
+    const sadOnly = await request(app).get(`/api/v1/posts/${post._id}/reactions?reaction=SAD`).expect(200);
+    const sadResult = data<{ items: Array<{ reaction: string; user: { name: string } }>; total: number }>(sadOnly);
+    expect(sadResult.total).toBe(1);
+    expect(sadResult.items[0]?.reaction).toBe('SAD');
+    expect(sadResult.items[0]?.user.name).toBe('Bob');
+  });
 });

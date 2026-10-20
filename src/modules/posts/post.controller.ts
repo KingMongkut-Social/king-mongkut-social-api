@@ -1,6 +1,6 @@
 import type { Request, Response } from 'express';
 import { AppError } from '../../common/errors/app-error.js';
-import type { CreateCommentInput, CreatePostInput, ListCommentsQuery, ListPostsQuery, UpdatePostInput } from './post.schemas.js';
+import type { CreateCommentInput, CreatePostInput, ListCommentsQuery, ListPostsQuery, ListReactionsQuery, UpdatePostInput } from './post.schemas.js';
 import * as postService from './post.service.js';
 
 export async function create(req: Request, res: Response): Promise<void> {
@@ -66,6 +66,11 @@ export async function bookmark(req: Request, res: Response): Promise<void> {
 
 export async function comments(req: Request, res: Response): Promise<void> {
   const result = await postService.listComments(req.params.id as string, req.query as unknown as ListCommentsQuery, req.auth);
+  res.json({ success: true, data: result });
+}
+
+export async function reactions(req: Request, res: Response): Promise<void> {
+  const result = await postService.listReactions(req.params.id as string, req.query as unknown as ListReactionsQuery, req.auth);
   res.json({ success: true, data: result });
 }
 
